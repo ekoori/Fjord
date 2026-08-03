@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pure logic: keys, input modes, filesystem enumeration, selection, navigation.
+    Must never reference Avalonia, and references only Logging.Abstractions so it
+    stays usable from tests and from any future headless host.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

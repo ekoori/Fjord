@@ -1,0 +1,23 @@
+# Normalise line endings in the repository to LF.
+#
+# Set before the first commit on purpose: once files are stored with CRLF, fixing it
+# rewrites every line of history. Fjord is built and tested on Windows and Linux, so a
+# mixed repository would show whole-file diffs depending on who touched a file last.
+* text=auto eol=lf
+
+# Windows-only files that genuinely need CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary, never touched.
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.dll binary
+*.exe binary
+
+# Keeps `git diff` readable for generated or vendored files without excluding them.
+*.slnx text eol=lf

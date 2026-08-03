@@ -1,0 +1,23 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+
+## Rider / VS / VS Code
+.idea/
+.vs/
+.vscode/
+
+## Test / scratch
+*.received.*
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+## Generated benchmark trees (see scripts/make-benchmark-tree.ps1)
+bench/
+
+## Local publish output
+dist/

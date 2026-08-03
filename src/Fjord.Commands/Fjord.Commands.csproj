@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately does NOT reference Fjord.Config. QuteSharp has Commands -> Config, and
+    that edge is avoidable: IConfigService lives in Core and is implemented in Config, so
+    :set and :bind can be tested against a fake.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Fjord.Core\Fjord.Core.csproj" />
+  </ItemGroup>
+
+</Project>
