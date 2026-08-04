@@ -262,35 +262,4 @@ public sealed class NavigationCommands
             pane.Selection.SetRange(clamped.Start, clamped.End, true);
         }
     }
-
-    [Command("yank", Aliases = ["y"], Group = "Selection", IsOperator = true,
-        Description = "Copy the paths a motion covers into a register")]
-    public void Yank(
-        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
-        [CommandArgument(Value = CommandValue.Range)] EntryRange range,
-        [CommandArgument(Value = CommandValue.Register)] char register,
-        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
-    {
-        if (range.Clamp(pane.Snapshot?.View.Count ?? 0) is not { } clamped)
-        {
-            return;
-        }
-
-        var paths = clamped.Rows()
-            .Select(pane.PathAt)
-            .Where(p => p is not null)
-            .ToList();
-
-        Registers[register] = paths!;
-        messages.Info($"Yanked {paths.Count} path{(paths.Count == 1 ? "" : "s")} to register {register}");
-    }
-
-    /// <summary>
-    /// Yanked paths, keyed by register.
-    /// </summary>
-    /// <remarks>
-    /// M1 only needs registers to round-trip paths. Real file operations, and the undo log
-    /// behind them, arrive with the operations queue in M2.
-    /// </remarks>
-    public Dictionary<char, IReadOnlyList<string>> Registers { get; } = [];
 }

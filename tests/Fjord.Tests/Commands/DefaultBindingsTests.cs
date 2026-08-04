@@ -2,7 +2,6 @@ using Fjord.Commands;
 using Fjord.Core.Diagnostics;
 using Fjord.Core.Input;
 using Fjord.Core.Keys;
-using Fjord.Core.Selection;
 
 namespace Fjord.Tests.Commands;
 
@@ -17,6 +16,9 @@ public class DefaultBindingsTests
         registry.Register(new ModeCommands(new FakeModeHost()));
         registry.Register(new TabCommands());
         registry.Register(new PlatformCommands(new Fjord.Tests.Platform.FakePlatform()));
+        registry.Register(new OperationCommands(
+            new Fjord.Tests.Operations.FakeOperationHost(),
+            new Fjord.Tests.Operations.FakeOperationFactory()));
         return registry;
     }
 
@@ -317,41 +319,7 @@ public class NavigationCommandTests
         Assert.Equal(0, pane.Selection.Count);
     }
 
-    [Fact]
-    public void YankCopiesPathsForTheRange()
-    {
-        var (parser, commands) = Setup();
-        var pane = Pane();
-        var messages = new RecordingMessageSink();
 
-        parser.Execute("yank", new CommandContext
-        {
-            Pane = pane,
-            Range = new EntryRange(1, 3),
-            Register = 'x',
-            Messages = messages,
-        });
-
-        Assert.Equal(3, commands.Registers['x'].Count);
-        Assert.Equal(Path.Combine("/tmp", "b"), commands.Registers['x'][0]);
-        Assert.Contains("Yanked 3 paths", messages.Last, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void YankClampsARangePastTheEnd()
-    {
-        var (parser, commands) = Setup();
-        var pane = Pane();
-
-        parser.Execute("yank", new CommandContext
-        {
-            Pane = pane,
-            Range = new EntryRange(6, 500),
-            Register = '"',
-        });
-
-        Assert.Equal(2, commands.Registers['"'].Count);
-    }
 
     [Fact]
     public void EnterOnAFileReportsRatherThanNavigating()
@@ -393,13 +361,12 @@ public class NavigationCommandTests
 
 public class OperatorDispatcherTests
 {
-    private static (OperatorDispatcher Dispatcher, NavigationCommands Commands) Setup()
+    private static OperatorDispatcher Setup()
     {
-        var commands = new NavigationCommands();
         var registry = new CommandRegistry();
-        registry.Register(commands);
+        registry.Register(new NavigationCommands());
         var parser = new CommandParser(registry);
-        return (new OperatorDispatcher(parser, registry), commands);
+        return new OperatorDispatcher(parser, registry);
     }
 
     private static FakePane Pane() => new("/tmp", "a", "b", "c", "d", "e", "f", "g", "h");
@@ -408,7 +375,7 @@ public class OperatorDispatcherTests
     public void OperatorActsOnTheRangeTheMotionCovered()
     {
         // d3j, spelled with the operator M1 actually ships.
-        var (dispatcher, _) = Setup();
+        var dispatcher = Setup();
         var pane = Pane();
 
         dispatcher.Execute("select-range", "move-down", 3, '"', pane, NullMessageSink.Instance);
@@ -419,7 +386,7 @@ public class OperatorDispatcherTests
     [Fact]
     public void OperatorLeavesTheCursorWhereItStarted()
     {
-        var (dispatcher, _) = Setup();
+        var dispatcher = Setup();
         var pane = Pane();
         pane.CursorIndex = 2;
 
@@ -431,7 +398,7 @@ public class OperatorDispatcherTests
     [Fact]
     public void BackwardMotionsProduceTheSameRange()
     {
-        var (dispatcher, _) = Setup();
+        var dispatcher = Setup();
         var pane = Pane();
         pane.CursorIndex = 5;
 
@@ -440,21 +407,11 @@ public class OperatorDispatcherTests
         Assert.Equal([3, 4, 5], pane.Selection.Indices());
     }
 
-    [Fact]
-    public void YankOverAMotionFillsTheRegister()
-    {
-        var (dispatcher, commands) = Setup();
-        var pane = Pane();
-
-        dispatcher.Execute("yank", "move-down", 2, 'a', pane, NullMessageSink.Instance);
-
-        Assert.Equal(3, commands.Registers['a'].Count);
-    }
 
     [Fact]
     public void MotionsClampSoAnOverlongCountStillWorks()
     {
-        var (dispatcher, _) = Setup();
+        var dispatcher = Setup();
         var pane = Pane();
 
         dispatcher.Execute("select-range", "move-down", 999, '"', pane, NullMessageSink.Instance);
@@ -467,24 +424,12 @@ public class OperatorDispatcherTests
     {
         // Without this the dispatcher would run an arbitrary command and then measure a
         // cursor that never moved, silently applying the operator to a single row.
-        var (dispatcher, _) = Setup();
+        var dispatcher = Setup();
 
         var ex = Assert.Throws<CommandException>(() =>
-            dispatcher.Execute("yank", "toggle-hidden", 1, '"', Pane(), NullMessageSink.Instance));
+            dispatcher.Execute("select-range", "toggle-hidden", 1, '"', Pane(), NullMessageSink.Instance));
 
         Assert.Contains("not a motion", ex.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void VisualModeRunsTheOperatorOverAnExistingRange()
-    {
-        // No motion is involved: in visual mode the range exists before the operator is
-        // typed, which is why an operator key there must not enter operator-pending.
-        var (dispatcher, commands) = Setup();
-        var pane = Pane();
-
-        dispatcher.ExecuteOverRange("yank", new EntryRange(2, 4), 'b', pane, NullMessageSink.Instance);
-
-        Assert.Equal(3, commands.Registers['b'].Count);
-    }
 }

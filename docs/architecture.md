@@ -174,6 +174,47 @@ resolves *every* default binding against the command registry only guards comman
 test project can see. App-layer commands would be invisible to it, and a rename could ship
 a key that silently does nothing.
 
+## File operations
+
+Operations are objects that **record what they actually did**, not what they were asked to
+do. That one decision is what makes undo survive skipped conflicts, partial failures and
+cancellation: whatever got as far as being recorded is exactly what needs reversing, so a
+copy cancelled at item seven of twenty is cleaned up by a single `u`.
+
+A cancelled copy also discards its partial write. `CopyToAsync` has already created the
+destination and written part of it, and the operation never reaches the line that records
+it — so undo could not clean it up and the user was left with a **truncated file that looks
+real**. That is data loss, not untidiness. A test caught it.
+
+**The queue is sequential on purpose.** A bounded worker pool is right for metadata and
+thumbnails, which are mostly waiting. Bulk file I/O is not: two concurrent copies on one
+disk are slower than one after the other, and they make progress reporting meaningless and
+conflict prompts race. Cancellation is per operation, so stopping a copy leaves what is
+queued behind it alone.
+
+Conflicts default to **fail** — the only policy that cannot lose data — with skip,
+overwrite and rename-alongside available. The App picks rename, because paste and duplicate
+land in a directory that often already holds the name and refusing would make the common
+case fail.
+
+### Trash, and undo you can actually deliver
+
+`dd` trashes; only an explicit `:delete!` deletes permanently, and a test asserts that
+nothing is bound to it. Permanent deletion reports `CanUndo => false` rather than sitting
+on the undo stack unable to help.
+
+The platforms differ in a way the user can see:
+
+| | trashes | Fjord can restore |
+|---|---|---|
+| Windows | `SHFileOperationW` + `FOF_ALLOWUNDO` | **no** — needs Explorer's own undo stack |
+| Linux | freedesktop spec, incl. `.Trash-$uid` on other volumes | yes, and so can the desktop |
+| macOS | `~/.Trash` (**untested**, no machine available) | yes, but no Finder "Put Back" |
+
+`TrashOperation.CanUndo` is false unless the platform handed back a token for every item,
+so on Windows a trash simply does not appear on the undo stack. Advertising an undo that
+would silently do nothing is worse than not offering one.
+
 ## The comparator is the hot path
 
 Merging 100,000 entries into sorted order runs a few million comparisons, so

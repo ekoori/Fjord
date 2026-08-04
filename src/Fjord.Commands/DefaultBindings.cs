@@ -64,7 +64,7 @@ public static class DefaultBindings
                 ["<Space>"] = "select-toggle",
                 ["<Ctrl+a>"] = "select-all",
                 ["<Escape>"] = "select-none",
-                ["<Ctrl+r>"] = "select-invert",
+                ["<Ctrl+Shift+i>"] = "select-invert",
 
                 // Tabs
                 ["gt"] = "tab-next",
@@ -79,8 +79,17 @@ public static class DefaultBindings
 
                 // Operators. These wait for a motion; the mode manager does not dispatch
                 // them on sight.
-                ["y"] = "yank",
-                ["d"] = "select-range",
+                ["y"] = "yank-paths",
+                ["d"] = "trash",
+                ["V"] = "select-range",
+
+                // Files. dd/yy are the vim doubling convention: an operator repeated
+                // acts on the current line.
+                ["p"] = "paste",
+                ["x"] = "cut-paths",
+                ["D"] = "trash-selection",
+                ["u"] = "undo",
+                ["<Ctrl+r>"] = "redo",
             },
 
             ["visual"] = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -95,8 +104,9 @@ public static class DefaultBindings
                 ["<Ctrl+u>"] = "move-half-page-up",
 
                 // Operators run at once here: the range already exists.
-                ["y"] = "yank",
-                ["d"] = "select-range",
+                ["y"] = "yank-paths",
+                ["d"] = "trash",
+                ["x"] = "cut-paths",
                 ["o"] = "visual-swap",
                 ["v"] = "mode-leave",
                 ["<Escape>"] = "mode-leave",

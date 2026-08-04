@@ -39,6 +39,8 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly CommandLine _commandLine;
     private readonly Border _pathBar;
     private readonly Border _statusBar;
+    private readonly OperationHost _operations;
+    private readonly TaskPanel _taskPanel;
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
@@ -73,9 +75,13 @@ public sealed class MainWindow : Window, IMessageSink
         _modeRegistry = new KeyModeRegistry();
 
         var platform = Fjord.Platform.PlatformServices.Create();
+        _operations = new OperationHost(Fjord.Platform.TrashServices.Create());
+        _taskPanel = new TaskPanel(_theme);
+
         var registry = new CommandRegistry();
         registry.Register(new NavigationCommands(platform));
         registry.Register(new PlatformCommands(platform));
+        registry.Register(new OperationCommands(_operations, new FileOperationFactory()));
 
         // The mode manager asks the registry whether a command is an operator, and the
         // mode commands ask the input controller to change mode — so the two are built
@@ -132,6 +138,7 @@ public sealed class MainWindow : Window, IMessageSink
         DockPanel.SetDock(_statusBar, Dock.Bottom);
         DockPanel.SetDock(_commandLine, Dock.Bottom);
         DockPanel.SetDock(_commandLine.CompletionHost, Dock.Bottom);
+        DockPanel.SetDock(_taskPanel, Dock.Bottom);
 
         // Order matters: the completion list sits above the command line, which sits above
         // the status bar, and the file list fills what is left.
@@ -139,7 +146,8 @@ public sealed class MainWindow : Window, IMessageSink
         {
             Children =
             {
-                _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost, scroller,
+                _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost,
+                _taskPanel, scroller,
             },
         };
 
@@ -172,6 +180,16 @@ public sealed class MainWindow : Window, IMessageSink
 
         _commandLine.Cancelled += (_, _) => _list.Focus();
 
+        _operations.Changed += (_, _) => _taskPanel.Update(_operations.Active);
+
+        // Filesystem watching is not in M1, so the listing has to be told when an
+        // operation finished changing it. Once per operation, not per item.
+        _operations.Settled += async (_, _) =>
+        {
+            _taskPanel.Update(_operations.Active);
+            await _workspace.ActivePane.ReloadAsync();
+        };
+
         try
         {
             _watcher = new ConfigWatcher(_paths.ConfigFile, ReloadConfig, a => Dispatcher.UIThread.Post(a));
@@ -182,7 +200,15 @@ public sealed class MainWindow : Window, IMessageSink
             _message ??= $"config watch unavailable: {ex.Message}";
         }
 
-        Closed += (_, _) => _watcher?.Dispose();
+        Closed += async (_, _) =>
+        {
+            _watcher?.Dispose();
+
+            // Stops any copy still running, rather than leaving it writing after the
+            // window is gone.
+            _operations.CancelAll();
+            await _operations.DisposeAsync();
+        };
 
         Opened += async (_, _) =>
         {
@@ -373,6 +399,7 @@ public sealed class MainWindow : Window, IMessageSink
         }
 
         _tabBar.Background = _theme.Background;
+        _taskPanel.Background = _theme.Stripe;
         RebuildTabBar();
 
         _keys.FontFamily = _theme.Typeface.FontFamily;
@@ -409,8 +436,9 @@ public sealed class MainWindow : Window, IMessageSink
         var loading = snapshot.IsComplete ? string.Empty : "  loading…";
         var error = snapshot.Error is { } ex ? $"  [{ex.GetType().Name}: {ex.Message}]" : string.Empty;
         var message = _message is { } m ? $"  {Prefix(_messageLevel)}{m}" : string.Empty;
+        var undo = _operations.NextUndoDescription is { } next ? $"  [u: {next}]" : string.Empty;
 
-        _status.Text = $"{position}/{view.Count}{selected}{loading}{error}{message}";
+        _status.Text = $"{position}/{view.Count}{selected}{loading}{error}{message}{undo}";
         _status.Foreground = _messageLevel == MessageLevel.Error && _message is not null
             ? _theme.BrokenText
             : _theme.MutedText;
