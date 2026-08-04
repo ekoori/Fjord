@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Fjord.Commands\Fjord.Commands.csproj" />
     <ProjectReference Include="..\..\src\Fjord.Config\Fjord.Config.csproj" />
     <ProjectReference Include="..\..\src\Fjord.Core\Fjord.Core.csproj" />
+    <ProjectReference Include="..\..\src\Fjord.Operations\Fjord.Operations.csproj" />
     <ProjectReference Include="..\..\src\Fjord.Platform\Fjord.Platform.csproj" />
   </ItemGroup>
 
