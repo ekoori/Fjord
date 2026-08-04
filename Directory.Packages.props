@@ -27,6 +27,9 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="FsCheck.Xunit" Version="3.3.0" />
+    <!-- Runtime skip: xUnit 2.x has no Assert.Skip, and a platform-specific test
+         that silently passes everywhere is worse than one that says it skipped. -->
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.23" />
   </ItemGroup>
 
 </Project>

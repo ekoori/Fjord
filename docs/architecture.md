@@ -205,11 +205,22 @@ on the undo stack unable to help.
 
 The platforms differ in a way the user can see:
 
-| | trashes | Fjord can restore |
-|---|---|---|
-| Windows | `SHFileOperationW` + `FOF_ALLOWUNDO` | **no** — needs Explorer's own undo stack |
-| Linux | freedesktop spec, incl. `.Trash-$uid` on other volumes | yes, and so can the desktop |
-| macOS | `~/.Trash` (**untested**, no machine available) | yes, but no Finder "Put Back" |
+| | trashes | Fjord can restore | verified |
+|---|---|---|---|
+| Windows | `SHFileOperationW` + `FOF_ALLOWUNDO` | **no** — needs Explorer's own undo stack | manually, items confirmed in the Recycle Bin |
+| Linux | freedesktop spec, incl. `.Trash-$uid` on other volumes | yes, and so can the desktop | `XdgTrashServiceTests`, run on Ubuntu 24.04 |
+| macOS | `~/.Trash` | yes, but no Finder "Put Back" | **not verified** — no machine available |
+
+`XdgTrashServiceTests` runs the real service against a redirected `XDG_DATA_HOME`, so it is
+self-contained and never touches the developer's own trash. It covers the `.trashinfo`
+format, restore-and-consume, same-name collisions from different directories, whole
+directory trees, and the percent-encoding of spaces and Unicode. Those tests skip
+themselves off Linux rather than passing vacuously — a platform test that silently passes
+everywhere is worse than none.
+
+macOS remains the gap. It will move items to `~/.Trash` and Fjord's own undo works, because
+`TrashOperation` remembers where each item came from; what it will not have is the Finder's
+"Put Back", which needs `NSFileManager.trashItemAtURL` through Objective-C interop.
 
 `TrashOperation.CanUndo` is false unless the platform handed back a token for every item,
 so on Windows a trash simply does not appear on the undo stack. Advertising an undo that
