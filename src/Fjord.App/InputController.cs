@@ -23,6 +23,7 @@ public sealed class InputController : IModeHost
     private readonly OperatorDispatcher _operators;
     private readonly IMessageSink _messages;
     private readonly Func<IPane?> _activePane;
+    private readonly Func<IWorkspace?> _workspace;
 
     public InputController(
         ModeManager modes,
@@ -30,7 +31,8 @@ public sealed class InputController : IModeHost
         CommandParser parser,
         OperatorDispatcher operators,
         IMessageSink messages,
-        Func<IPane?> activePane)
+        Func<IPane?> activePane,
+        Func<IWorkspace?> workspace)
     {
         _modes = modes;
         _modeRegistry = modeRegistry;
@@ -38,6 +40,7 @@ public sealed class InputController : IModeHost
         _operators = operators;
         _messages = messages;
         _activePane = activePane;
+        _workspace = workspace;
     }
 
     /// <summary>Raised after a key was handled, so the status bar can refresh.</summary>
@@ -138,7 +141,12 @@ public sealed class InputController : IModeHost
 
         try
         {
-            var context = new CommandContext { Pane = pane, Messages = _messages };
+            var context = new CommandContext
+            {
+                Pane = pane,
+                Workspace = _workspace(),
+                Messages = _messages,
+            };
 
             foreach (var command in _parser.Parse(line, context))
             {
@@ -152,6 +160,19 @@ public sealed class InputController : IModeHost
 
         Handled?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>Toggles the render-time overlay. The window supplies the handler.</summary>
+    public bool ToggleFrameStats()
+    {
+        FrameStatsToggled?.Invoke(this, EventArgs.Empty);
+        return FrameStatsEnabled?.Invoke() ?? false;
+    }
+
+    /// <summary>Raised when a command asked to toggle the frame-stats overlay.</summary>
+    public event EventHandler? FrameStatsToggled;
+
+    /// <summary>Reports whether the overlay is currently on.</summary>
+    public Func<bool>? FrameStatsEnabled { get; set; }
 
     public void Quit()
     {
@@ -195,6 +216,7 @@ public sealed class InputController : IModeHost
             {
                 Count = result.Count,
                 Pane = pane,
+                Workspace = _workspace(),
                 Register = result.Register ?? '"',
                 Messages = _messages,
             });

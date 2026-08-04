@@ -1,6 +1,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -26,7 +27,7 @@ namespace Fjord.App.Views;
 public sealed class MainWindow : Window, IMessageSink
 {
     private readonly FileListView _list;
-    private readonly PaneController _pane;
+    private readonly Workspace _workspace;
     private readonly ListTheme _theme;
     private readonly FjordPaths _paths;
     private readonly KeyBindings _bindings;
@@ -38,6 +39,8 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly CommandLine _commandLine;
     private readonly Border _pathBar;
     private readonly Border _statusBar;
+    private readonly StackPanel _tabStrip;
+    private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
 
     private FjordConfig _config;
@@ -58,14 +61,21 @@ public sealed class MainWindow : Window, IMessageSink
 
         _theme = new ListTheme(_config.Appearance);
         _list = new FileListView(_theme);
-        _pane = new PaneController(lister, _list, _config.ToSortSpec(), _config.ToFilterSpec());
+
+        // Panes are created on demand so every tab gets its own snapshot and its own
+        // cancellation source; that is what keeps a tab switch from waiting on anything.
+        _workspace = new Workspace(
+            () => new PaneController(lister, _list, _config.ToSortSpec(), _config.ToFilterSpec()),
+            () => (Application.Current?.ApplicationLifetime
+                as IClassicDesktopStyleApplicationLifetime)?.Shutdown());
 
         _bindings = new KeyBindings();
         _modeRegistry = new KeyModeRegistry();
 
+        var platform = Fjord.Platform.PlatformServices.Create();
         var registry = new CommandRegistry();
-        var navigation = new NavigationCommands();
-        registry.Register(navigation);
+        registry.Register(new NavigationCommands(platform));
+        registry.Register(new PlatformCommands(platform));
 
         // The mode manager asks the registry whether a command is an operator, and the
         // mode commands ask the input controller to change mode — so the two are built
@@ -75,16 +85,34 @@ public sealed class MainWindow : Window, IMessageSink
         var parser = new CommandParser(registry);
 
         controller = new InputController(
-            modes, _modeRegistry, parser, new OperatorDispatcher(parser, registry), this, () => _pane);
+            modes,
+            _modeRegistry,
+            parser,
+            new OperatorDispatcher(parser, registry),
+            this,
+            () => _workspace.ActivePane,
+            () => _workspace);
         _input = controller;
 
         registry.Register(new ModeCommands(controller));
+        registry.Register(new TabCommands());
 
         _commandLine = new CommandLine(
-            _theme, new CompletionEngine(registry, new PathCompletionSource(() => _pane)));
+            _theme,
+            new CompletionEngine(registry, new PathCompletionSource(() => _workspace.ActivePane)));
 
         DefaultBindings.Load(_bindings, _modeRegistry);
         ApplyUserBindings();
+
+        _tabStrip = new StackPanel { Orientation = Orientation.Horizontal };
+        _tabBar = new Border
+        {
+            Background = _theme.Background,
+            Child = _tabStrip,
+
+            // Hidden with a single tab: a one-tab tab bar is chrome that says nothing.
+            IsVisible = false,
+        };
 
         _path = Label(_theme.FileText);
         _status = Label(_theme.MutedText);
@@ -99,6 +127,7 @@ public sealed class MainWindow : Window, IMessageSink
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
 
+        DockPanel.SetDock(_tabBar, Dock.Top);
         DockPanel.SetDock(_pathBar, Dock.Top);
         DockPanel.SetDock(_statusBar, Dock.Bottom);
         DockPanel.SetDock(_commandLine, Dock.Bottom);
@@ -108,7 +137,10 @@ public sealed class MainWindow : Window, IMessageSink
         // the status bar, and the file list fills what is left.
         Content = new DockPanel
         {
-            Children = { _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost, scroller },
+            Children =
+            {
+                _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost, scroller,
+            },
         };
 
         ApplyTheme();
@@ -117,9 +149,20 @@ public sealed class MainWindow : Window, IMessageSink
         // is what will let Escape leave the command line once it has a TextBox.
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
 
-        _pane.Changed += (_, _) => UpdateChrome();
+        _workspace.Changed += (_, _) =>
+        {
+            RebuildTabBar();
+            UpdateChrome();
+        };
         _input.Handled += (_, _) => UpdateChrome();
         _input.CommandLineRequested += (_, initial) => _commandLine.Open(initial);
+
+        _input.FrameStatsToggled += (_, _) =>
+        {
+            _list.ShowFrameStats = !_list.ShowFrameStats;
+            _list.InvalidateVisual();
+        };
+        _input.FrameStatsEnabled = () => _list.ShowFrameStats;
 
         _commandLine.Accepted += (_, line) =>
         {
@@ -145,7 +188,9 @@ public sealed class MainWindow : Window, IMessageSink
         {
             ClampToScreen();
             _list.Focus();
-            await _pane.NavigateAsync(Environment.CurrentDirectory);
+            var pane = _workspace.Initialise();
+            pane.Changed += (_, _) => UpdateChrome();
+            await pane.NavigateAsync(Environment.CurrentDirectory);
         };
 
         bool IsOperator(string name) => registry.Find(name)?.IsOperator == true;
@@ -237,7 +282,10 @@ public sealed class MainWindow : Window, IMessageSink
         ApplyUserBindings();
 
         // Reorders what is already loaded; no directory is re-read.
-        _pane.SetOrder(_config.ToSortSpec(), _config.ToFilterSpec());
+        foreach (var tab in _workspace.Tabs)
+        {
+            tab.Active.SetOrder(_config.ToSortSpec(), _config.ToFilterSpec());
+        }
 
         _list.RefreshTheme();
         UpdateChrome();
@@ -252,6 +300,49 @@ public sealed class MainWindow : Window, IMessageSink
         {
             _message = "bindings: " + string.Join("; ", problems);
             _messageLevel = MessageLevel.Warning;
+        }
+    }
+
+    /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
+    private void RebuildTabBar()
+    {
+        _tabBar.IsVisible = _workspace.Tabs.Count > 1;
+        _tabStrip.Children.Clear();
+
+        if (!_tabBar.IsVisible)
+        {
+            return;
+        }
+
+        for (var i = 0; i < _workspace.Tabs.Count; i++)
+        {
+            var isCurrent = i == _workspace.CurrentIndex;
+            var index = i;
+
+            var label = new TextBlock
+            {
+                Text = $"{i + 1}: {_workspace.Tabs[i].Title}",
+                FontFamily = _theme.Typeface.FontFamily,
+                FontSize = _theme.FontSize,
+                Foreground = isCurrent ? _theme.FileText : _theme.MutedText,
+            };
+
+            var chip = new Border
+            {
+                Background = isCurrent ? _theme.CursorBackground : _theme.Stripe,
+                Padding = new Thickness(_theme.LeftPadding, _theme.RowPadding),
+                Margin = new Thickness(0, 0, 2, 0),
+                Child = label,
+                Cursor = new Cursor(StandardCursorType.Hand),
+            };
+
+            chip.PointerPressed += (_, _) =>
+            {
+                _workspace.CurrentIndex = index;
+                _list.Focus();
+            };
+
+            _tabStrip.Children.Add(chip);
         }
     }
 
@@ -281,6 +372,9 @@ public sealed class MainWindow : Window, IMessageSink
             label.Foreground = brush;
         }
 
+        _tabBar.Background = _theme.Background;
+        RebuildTabBar();
+
         _keys.FontFamily = _theme.Typeface.FontFamily;
         _keys.FontSize = _theme.FontSize;
         _keys.Foreground = _theme.CursorBar;
@@ -288,7 +382,13 @@ public sealed class MainWindow : Window, IMessageSink
 
     private void UpdateChrome()
     {
-        _path.Text = _pane.Directory;
+        var pane = _workspace.Tabs.Count == 0 ? null : _workspace.ActivePane;
+        if (pane is null)
+        {
+            return;
+        }
+
+        _path.Text = pane.Directory;
 
         // Pending keys and mode, exactly as QuteSharp's status bar shows them: a
         // half-typed "g" or an armed operator has to be visible or the app feels stuck.
@@ -296,7 +396,7 @@ public sealed class MainWindow : Window, IMessageSink
         var modeText = mode == KeyMode.Normal ? string.Empty : $"-- {mode.Name.ToUpperInvariant()} -- ";
         _keys.Text = modeText + _input.Modes.PendingKeys;
 
-        var snapshot = _pane.Snapshot;
+        var snapshot = pane.Snapshot;
         if (snapshot is null)
         {
             _status.Text = _message ?? string.Empty;

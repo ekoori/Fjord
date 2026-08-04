@@ -1,3 +1,4 @@
+using Fjord.Core.Diagnostics;
 using Fjord.Core.Panes;
 
 namespace Fjord.Commands;
@@ -42,6 +43,11 @@ public sealed class ModeCommands
     [Command("command-mode", Group = "Mode", MaxSplit = 0,
         Description = "Open the command line")]
     public void CommandMode(string initial = ":") => _host.EnterCommandLine(initial);
+
+    [Command("frame-stats", Group = "Diagnostics",
+        Description = "Show or hide per-frame render times")]
+    public void FrameStats([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages) =>
+        messages.Info(_host.ToggleFrameStats() ? "Frame stats on." : "Frame stats off.");
 
     [Command("quit", Aliases = ["q"], Group = "Application", Description = "Close Fjord")]
     public void Quit() => _host.Quit();

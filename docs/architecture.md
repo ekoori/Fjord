@@ -174,6 +174,49 @@ resolves *every* default binding against the command registry only guards comman
 test project can see. App-layer commands would be invisible to it, and a rename could ship
 a key that silently does nothing.
 
+## The comparator is the hot path
+
+Merging 100,000 entries into sorted order runs a few million comparisons, so
+`NaturalComparer` sets the cost of loading a large directory more than the enumeration
+does. Two things matter, both measured:
+
+- **Compare characters before folding case.** In a sorted merge the names share long
+  prefixes, so the overwhelmingly common outcome is "identical character".
+- **`char.ToUpperInvariant` has an ASCII fast path.** It otherwise goes through the Unicode
+  casing tables on every character.
+
+Together these took a 100,000-entry listing from **2,130 ms to 432 ms** — throughput from
+47k to 232k entries/sec. Nothing else in the pipeline was touched. Anything non-ASCII still
+falls through to the real implementation, so the ordering is unchanged; the total-order
+property tests are what make that safe to assert.
+
+## Tabs
+
+Each tab owns its pane, and each pane its own snapshot and cancellation source, so a switch
+is a pointer swap: it does not touch, cancel or await background work, and a listing started
+in a tab you left keeps running into that tab's own snapshot.
+
+There is **one `FileListView` for the whole window**, re-pointed on each switch — twenty
+tabs each holding a row-text cache would be waste. The consequence is that an inactive pane
+cannot leave its cursor, selection and scroll position on the view; `PaneController` holds
+them while detached and hands them back through `Adopt`. `IsActive` is what decides which
+of the two the `IPane` members read.
+
+## The platform seam is one project, not three
+
+With plain project references all three platform assemblies would be referenced on every OS
+anyway, and dynamic loading breaks single-file publish and trimming. `OperatingSystem.IsWindows()`
+is special-cased by the linker, so a RID-specific publish proves the other branches dead and
+drops them. `[SupportedOSPlatform]` plus `TreatWarningsAsErrors` turns CA1416 into a build
+error, which is stronger enforcement than separate assemblies.
+
+Two platform details that cost time if rediscovered:
+
+- Windows: `explorer /select,"path"` — the comma with no space is required, and explorer
+  returns exit code **1 on success**, so nothing may check it.
+- Linux: `org.freedesktop.FileManager1.ShowItems` over D-Bus is the only way to get the file
+  *selected*; `xdg-open` on the parent is the fallback when no session bus is available.
+
 ## The command line
 
 `CommandLine` owns its own `TextBox` and handles Enter/Tab/Up/Down/Escape locally rather

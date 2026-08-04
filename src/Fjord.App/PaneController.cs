@@ -23,6 +23,16 @@ public sealed class PaneController : IPane
 
     private CancellationTokenSource? _navigation;
 
+    // State held while this pane is not the one on screen. One FileListView serves every
+    // tab, so an inactive pane cannot leave its cursor and selection there; it keeps them
+    // here and hands them back on activation. That is what makes switching tabs a pointer
+    // swap that restores position exactly.
+    private int _detachedCursor;
+    private int? _detachedVisualAnchor;
+    private SelectionSet _detachedSelection = new();
+    private double _detachedScrollOffset;
+    private bool _isActive;
+
     public PaneController(
         IDirectoryLister lister, FileListView list, SortSpec? sort = null, FilterSpec? filter = null)
     {
@@ -43,29 +53,95 @@ public sealed class PaneController : IPane
     /// <summary>The directory being shown. Empty before the first navigation.</summary>
     public string Directory => Snapshot?.Directory ?? string.Empty;
 
+    /// <summary>Whether this pane is the one the shared view is currently showing.</summary>
+    public bool IsActive => _isActive;
+
     public int CursorIndex
     {
-        get => _list.CursorIndex;
-        set => _list.CursorIndex = value;
+        get => _isActive ? _list.CursorIndex : _detachedCursor;
+        set
+        {
+            if (_isActive)
+            {
+                _list.CursorIndex = value;
+            }
+            else
+            {
+                _detachedCursor = Math.Max(0, value);
+            }
+        }
     }
 
     public int? VisualAnchor
     {
-        get => _list.VisualAnchor;
+        get => _isActive ? _list.VisualAnchor : _detachedVisualAnchor;
         set
         {
-            _list.VisualAnchor = value;
-            _list.RequestRedraw();
+            if (_isActive)
+            {
+                _list.VisualAnchor = value;
+                _list.RequestRedraw();
+            }
+            else
+            {
+                _detachedVisualAnchor = value;
+            }
         }
     }
 
-    public SelectionSet Selection => _list.Selection;
+    public SelectionSet Selection => _isActive ? _list.Selection : _detachedSelection;
 
+    /// <summary>
+    /// Rows that fit the viewport.
+    /// </summary>
+    /// <remarks>
+    /// An inactive pane has no viewport of its own, so it borrows the live one: a page
+    /// motion run against a background tab should still move by a screenful.
+    /// </remarks>
     public int PageSize => _list.PageSize;
 
-    public EntryRange? VisualRange => _list.VisualRange is { } range
-        ? EntryRange.Between(range.From, range.To)
-        : null;
+    public EntryRange? VisualRange
+    {
+        get
+        {
+            if (_isActive)
+            {
+                return _list.VisualRange is { } range ? EntryRange.Between(range.From, range.To) : null;
+            }
+
+            return _detachedVisualAnchor is { } anchor
+                ? EntryRange.Between(anchor, _detachedCursor)
+                : null;
+        }
+    }
+
+    /// <summary>Points the shared view at this pane.</summary>
+    public void Activate()
+    {
+        if (_isActive)
+        {
+            return;
+        }
+
+        _isActive = true;
+        _list.Adopt(Snapshot, _detachedCursor, _detachedVisualAnchor, _detachedSelection, _detachedScrollOffset);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Takes this pane's state off the shared view before another pane adopts it.</summary>
+    public void Deactivate()
+    {
+        if (!_isActive)
+        {
+            return;
+        }
+
+        _detachedCursor = _list.CursorIndex;
+        _detachedVisualAnchor = _list.VisualAnchor;
+        _detachedSelection = _list.Selection;
+        _detachedScrollOffset = _list.ScrollOffset;
+        _isActive = false;
+    }
 
     public string? CursorName => CurrentCursorName();
 
@@ -79,7 +155,22 @@ public sealed class PaneController : IPane
 
     public void MoveCursorTo(int row) => CursorIndex = row;
 
-    public bool MoveCursorToName(string name) => _list.MoveCursorToName(name, StringComparison.Ordinal);
+    public bool MoveCursorToName(string name)
+    {
+        if (_isActive)
+        {
+            return _list.MoveCursorToName(name, StringComparison.Ordinal);
+        }
+
+        var row = (Snapshot?.View ?? default).IndexOfName(name, StringComparison.Ordinal);
+        if (row < 0)
+        {
+            return false;
+        }
+
+        _detachedCursor = row;
+        return true;
+    }
 
     public string? PathAt(int row)
     {
@@ -126,7 +217,18 @@ public sealed class PaneController : IPane
 
         // Published before a single entry has arrived, so the window shows the new
         // directory and an empty list immediately instead of holding the old contents.
-        _list.Snapshot = snapshot;
+        if (_isActive)
+        {
+            _list.Snapshot = snapshot;
+        }
+        else
+        {
+            _detachedCursor = 0;
+            _detachedVisualAnchor = null;
+            _detachedSelection = new SelectionSet();
+            _detachedScrollOffset = 0;
+        }
+
         Changed?.Invoke(this, EventArgs.Empty);
 
         await LoadAsync(snapshot, selectName, cts.Token).ConfigureAwait(true);
@@ -159,11 +261,14 @@ public sealed class PaneController : IPane
 
         // Synchronously, not RequestRedraw: the cursor lookup below has to search the new
         // order, and a deferred refresh would leave it searching the old one.
-        _list.SyncView();
+        if (_isActive)
+        {
+            _list.SyncView();
+        }
 
         if (name is not null)
         {
-            _list.MoveCursorToName(name, StringComparison.Ordinal);
+            MoveCursorToName(name);
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
@@ -171,8 +276,9 @@ public sealed class PaneController : IPane
 
     public string? CurrentCursorName()
     {
-        var view = _list.Snapshot?.View ?? default;
-        return view.Count > 0 && _list.CursorIndex < view.Count ? view[_list.CursorIndex].Name : null;
+        var view = Snapshot?.View ?? default;
+        var cursor = CursorIndex;
+        return view.Count > 0 && cursor < view.Count ? view[cursor].Name : null;
     }
 
     private Task GoAsync(HistoryEntry? entry) =>
@@ -191,10 +297,14 @@ public sealed class PaneController : IPane
             {
                 snapshot.Append(batch.Span);
 
-                // One coalesced repaint per batch. Never per entry.
-                _list.RequestRedraw();
+                // One coalesced repaint per batch, and none at all for a background tab:
+                // it keeps loading into its own snapshot and is simply not on screen.
+                if (_isActive)
+                {
+                    _list.RequestRedraw();
+                }
 
-                if (!cursorPlaced && _list.MoveCursorToName(selectName!, StringComparison.Ordinal))
+                if (!cursorPlaced && MoveCursorToName(selectName!))
                 {
                     cursorPlaced = true;
                 }
@@ -220,10 +330,13 @@ public sealed class PaneController : IPane
 
         if (!cursorPlaced && selectName is not null)
         {
-            _list.MoveCursorToName(selectName, StringComparison.Ordinal);
+            MoveCursorToName(selectName);
         }
 
-        _list.RequestRedraw();
+        if (_isActive)
+        {
+            _list.RequestRedraw();
+        }
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

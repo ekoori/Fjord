@@ -140,6 +140,8 @@ public class CompletionEngineTests
         var registry = new CommandRegistry();
         registry.Register(new NavigationCommands());
         registry.Register(new ModeCommands(new FakeModeHost()));
+        registry.Register(new TabCommands());
+        registry.Register(new PlatformCommands(new Fjord.Tests.Platform.FakePlatform()));
         return new CompletionEngine(registry, new FakePaths());
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -50,6 +51,12 @@ public sealed class FileListView : Control, ILogicalScrollable
     private Vector _offset;
     private double _lastScaling = 1;
 
+    // Rolling window of Render durations, for the frame-stats overlay. A ring rather than
+    // a list so measuring costs no allocation in the paint loop.
+    private readonly double[] _frameTimes = new double[120];
+    private int _frameIndex;
+    private int _frameCount;
+
     public FileListView(ListTheme theme)
     {
         _theme = theme;
@@ -62,7 +69,68 @@ public sealed class FileListView : Control, ILogicalScrollable
     /// <summary>Rows currently painted, as a half-open range. Read by the metadata worker.</summary>
     public (int First, int Last) VisibleRange { get; private set; }
 
-    public SelectionSet Selection { get; } = new();
+    /// <summary>
+    /// Whether to measure and draw per-frame render times.
+    /// </summary>
+    /// <remarks>
+    /// Self-measurement beats an external profiler for a paint loop this small, and it
+    /// stays available to a user reporting that scrolling feels slow.
+    /// </remarks>
+    public bool ShowFrameStats { get; set; }
+
+    /// <summary>Mean and 99th-percentile Render time over the last frames, in milliseconds.</summary>
+    public (double Mean, double P99) FrameStats()
+    {
+        if (_frameCount == 0)
+        {
+            return (0, 0);
+        }
+
+        var sample = _frameTimes.Take(_frameCount).OrderBy(x => x).ToArray();
+        return (sample.Average(), sample[Math.Min(sample.Length - 1, (int)(sample.Length * 0.99))]);
+    }
+
+    /// <summary>
+    /// The selection of whichever pane is showing.
+    /// </summary>
+    /// <remarks>
+    /// Replaced wholesale on a tab switch rather than copied, because one
+    /// <see cref="FileListView"/> serves every tab — twenty tabs each with their own
+    /// 128-slot text cache would be pure waste, so the view is re-pointed instead.
+    /// </remarks>
+    public SelectionSet Selection { get; private set; } = new();
+
+    /// <summary>Vertical scroll position, saved and restored across tab switches.</summary>
+    public double ScrollOffset
+    {
+        get => _offset.Y;
+        set => Offset = _offset.WithY(value);
+    }
+
+    /// <summary>
+    /// Points the view at a different pane's state.
+    /// </summary>
+    /// <remarks>
+    /// Everything the user can see is swapped in one go, and the row cache is dropped
+    /// because every row now shows something else. Cheap: no enumeration is started, no
+    /// background work is touched, and the pane being left keeps loading into its own
+    /// snapshot.
+    /// </remarks>
+    public void Adopt(DirectorySnapshot? snapshot, int cursor, int? visualAnchor, SelectionSet selection,
+        double scrollOffset)
+    {
+        _snapshot = snapshot;
+        Selection = selection;
+        VisualAnchor = visualAnchor;
+
+        InvalidateRowCache();
+        RefreshView();
+
+        _cursor = Math.Clamp(cursor, 0, Math.Max(0, _view.Count - 1));
+        ScrollOffset = scrollOffset;
+        EnsureCursorVisible();
+        InvalidateVisual();
+    }
 
     /// <summary>
     /// Where visual mode was entered, or null outside visual mode.
@@ -273,6 +341,39 @@ public sealed class FileListView : Control, ILogicalScrollable
     }
 
     public override void Render(DrawingContext context)
+    {
+        var started = ShowFrameStats ? Stopwatch.GetTimestamp() : 0L;
+        RenderCore(context);
+
+        if (!ShowFrameStats)
+        {
+            return;
+        }
+
+        _frameTimes[_frameIndex] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        _frameIndex = (_frameIndex + 1) % _frameTimes.Length;
+        _frameCount = Math.Min(_frameCount + 1, _frameTimes.Length);
+
+        DrawFrameStats(context);
+    }
+
+    private void DrawFrameStats(DrawingContext context)
+    {
+        var (mean, p99) = FrameStats();
+        var rows = _view.Count;
+        var text = Text(
+            $"render {mean:F2} ms mean, {p99:F2} ms p99   {rows:N0} rows",
+            _theme.MutedText,
+            300,
+            _theme,
+            TextAlignment.Right);
+
+        var origin = new Point(_viewport.Width - 308, 4);
+        context.FillRectangle(_theme.Stripe, new Rect(origin.X - 4, 0, 308, text.Height + 8));
+        context.DrawText(text, origin);
+    }
+
+    private void RenderCore(DrawingContext context)
     {
         var theme = _theme;
 

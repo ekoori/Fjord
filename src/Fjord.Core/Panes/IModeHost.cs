@@ -25,6 +25,9 @@ public interface IModeHost
     /// <summary>Opens the command line, pre-filled with <paramref name="initial"/>.</summary>
     void EnterCommandLine(string initial);
 
+    /// <summary>Turns the render-time overlay on or off. Returns the new state.</summary>
+    bool ToggleFrameStats();
+
     /// <summary>Closes the application.</summary>
     void Quit();
 }

@@ -115,6 +115,10 @@ public sealed class FakePane : IPane
         return Task.CompletedTask;
     }
 
+    /// <summary>Adds a directory entry, for tests that need one to navigate into.</summary>
+    public void AddDirectory(string name) =>
+        _snapshot.Append([new FileEntry(name, -1, 100, EntryFlags.Directory)]);
+
     public void SetOrder(SortSpec sort, FilterSpec filter)
     {
         Sort = sort;
@@ -142,6 +146,12 @@ public sealed class FakeModeHost : IModeHost
     }
 
     public void EnterCommandLine(string initial) => Actions.Add($"command-line:{initial}");
+
+    public bool ToggleFrameStats()
+    {
+        Actions.Add("toggle-frame-stats");
+        return true;
+    }
 
     public void Quit() => Actions.Add("quit");
 }

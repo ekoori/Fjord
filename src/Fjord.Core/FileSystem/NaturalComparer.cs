@@ -70,11 +70,20 @@ public sealed class NaturalComparer : IComparer<string>
                 continue;
             }
 
-            var ca = char.ToUpperInvariant(a[i]);
-            var cb = char.ToUpperInvariant(b[j]);
+            var ca = a[i];
+            var cb = b[j];
+
+            // Identical characters are the overwhelmingly common case in a sorted merge —
+            // names share long prefixes — so compare before folding case at all.
             if (ca != cb)
             {
-                return ca < cb ? -1 : 1;
+                ca = Upper(ca);
+                cb = Upper(cb);
+
+                if (ca != cb)
+                {
+                    return ca < cb ? -1 : 1;
+                }
             }
 
             i++;
@@ -153,4 +162,19 @@ public sealed class NaturalComparer : IComparer<string>
     }
 
     private static bool IsAsciiDigit(char c) => c is >= '0' and <= '9';
+
+    /// <summary>
+    /// Upper-cases one character, with a fast path for ASCII.
+    /// </summary>
+    /// <remarks>
+    /// This runs a few million times when merging a large directory into sorted order, and
+    /// <see cref="char.ToUpperInvariant(char)"/> goes through the Unicode casing tables
+    /// every time. Filenames are predominantly ASCII, so the range check pays for itself;
+    /// anything else falls through to the real implementation, which keeps the ordering
+    /// identical for names that are not.
+    /// </remarks>
+    private static char Upper(char c) =>
+        c is >= 'a' and <= 'z' ? (char)(c - 32)
+        : c < 128 ? c
+        : char.ToUpperInvariant(c);
 }

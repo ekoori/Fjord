@@ -1,6 +1,7 @@
 using Fjord.Core.Diagnostics;
 using Fjord.Core.FileSystem;
 using Fjord.Core.Panes;
+using Fjord.Core.Platform;
 using Fjord.Core.Selection;
 
 namespace Fjord.Commands;
@@ -16,6 +17,14 @@ namespace Fjord.Commands;
 /// </remarks>
 public sealed class NavigationCommands
 {
+    private readonly IPlatformServices? _platform;
+
+    /// <param name="platform">
+    /// Used to open a file with its default application. Optional so command parsing and
+    /// motion behaviour can be tested without an OS dependency.
+    /// </param>
+    public NavigationCommands(IPlatformServices? platform = null) => _platform = platform;
+
     // ---- Motions
 
     [Command("move-down", Group = "Motion", Motion = MotionKind.Linewise,
@@ -93,14 +102,38 @@ public sealed class NavigationCommands
         }
 
         ref readonly var entry = ref view[pane.CursorIndex];
-        if (!entry.IsDirectory)
+        var path = Path.Combine(pane.Directory, entry.Name);
+
+        if (entry.IsDirectory)
         {
-            // Opening a file needs the platform layer, which arrives at plan step 13.
+            return pane.NavigateAsync(path);
+        }
+
+        if (_platform is null)
+        {
             messages.Info($"Not a directory: {entry.Name}");
             return Task.CompletedTask;
         }
 
-        return pane.NavigateAsync(Path.Combine(pane.Directory, entry.Name));
+        // Enter on a file hands it to the OS, which is what every file manager does and
+        // what makes the key mean one thing rather than two.
+        return OpenFileAsync(path, messages);
+    }
+
+    private async Task OpenFileAsync(string path, IMessageSink messages)
+    {
+        try
+        {
+            await _platform!.OpenAsync(path).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception
+                                       or InvalidOperationException
+                                       or IOException
+                                       or UnauthorizedAccessException
+                                       or PlatformNotSupportedException)
+        {
+            messages.Error($"Could not open {Path.GetFileName(path)}: {ex.Message}");
+        }
     }
 
     [Command("leave", Aliases = ["up"], Group = "Navigation",

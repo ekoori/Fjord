@@ -48,6 +48,9 @@ public static class DefaultBindings
                 ["<Backspace>"] = "leave",
                 ["<Left>"] = "leave",
                 ["r"] = "reload",
+                ["~"] = "go-home",
+                ["o"] = "open-with-default",
+                ["R"] = "reveal",
                 ["<Ctrl+o>"] = "back",
                 ["<Ctrl+i>"] = "forward",
                 ["<Back>"] = "back",
@@ -62,6 +65,13 @@ public static class DefaultBindings
                 ["<Ctrl+a>"] = "select-all",
                 ["<Escape>"] = "select-none",
                 ["<Ctrl+r>"] = "select-invert",
+
+                // Tabs
+                ["gt"] = "tab-next",
+                ["gT"] = "tab-prev",
+                ["<Ctrl+t>"] = "tab-new",
+                ["<Ctrl+w>"] = "tab-close",
+                ["<Ctrl+Shift+t>"] = "tab-undo-close",
 
                 // Modes
                 ["v"] = "visual-mode",
