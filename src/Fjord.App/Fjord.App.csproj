@@ -3,10 +3,17 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The .exe icon on Windows. The window icon is set separately, in code. -->
+    <ApplicationIcon>Assets/fjord.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyTitle>Fjord</AssemblyTitle>
     <RootNamespace>Fjord.App</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded so the window icon works from a single-file publish too. -->
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" />

@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Fjord.Commands;
 using Fjord.Config;
@@ -60,6 +61,7 @@ public sealed class MainWindow : Window, IMessageSink
         _messageLevel = initial.Error is null ? MessageLevel.Info : MessageLevel.Error;
 
         Title = "Fjord";
+        Icon = LoadIcon();
         Width = 1000;
         Height = 700;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -574,4 +576,25 @@ public sealed class MainWindow : Window, IMessageSink
         Child = content,
         HorizontalAlignment = HorizontalAlignment.Stretch,
     };
+
+    /// <summary>
+    /// The window and taskbar icon.
+    /// </summary>
+    /// <remarks>
+    /// Loaded from an embedded resource rather than a file beside the executable, so it
+    /// survives a single-file publish. A missing icon is not worth failing to start over —
+    /// the window simply gets the platform default.
+    /// </remarks>
+    private static WindowIcon? LoadIcon()
+    {
+        try
+        {
+            using var stream = AssetLoader.Open(new Uri("avares://Fjord.App/Assets/fjord.ico"));
+            return new WindowIcon(stream);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or IOException or ArgumentException)
+        {
+            return null;
+        }
+    }
 }
