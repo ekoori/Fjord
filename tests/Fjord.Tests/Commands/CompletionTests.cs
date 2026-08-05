@@ -1,4 +1,5 @@
 using Fjord.Commands;
+using Fjord.Core.Input;
 
 namespace Fjord.Tests.Commands;
 
@@ -145,6 +146,13 @@ public class CompletionEngineTests
         registry.Register(new OperationCommands(
             new Fjord.Tests.Operations.FakeOperationHost(),
             new Fjord.Tests.Operations.FakeOperationFactory()));
+        registry.Register(new HelpCommands(
+            registry,
+            new KeyBindings(),
+            new KeyModeRegistry(),
+            new FakeHelpView(),
+            new FakeConfigService(),
+            new Fjord.Tests.Platform.FakePlatform()));
         return new CompletionEngine(registry, new FakePaths());
     }
 

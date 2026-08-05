@@ -40,6 +40,7 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly Border _pathBar;
     private readonly Border _statusBar;
     private readonly OperationHost _operations;
+    private readonly HelpOverlay _help;
     private readonly TaskPanel _taskPanel;
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
@@ -77,11 +78,19 @@ public sealed class MainWindow : Window, IMessageSink
         var platform = Fjord.Platform.PlatformServices.Create();
         _operations = new OperationHost(Fjord.Platform.TrashServices.Create());
         _taskPanel = new TaskPanel(_theme);
+        _help = new HelpOverlay(_theme);
 
         var registry = new CommandRegistry();
         registry.Register(new NavigationCommands(platform));
         registry.Register(new PlatformCommands(platform));
         registry.Register(new OperationCommands(_operations, new FileOperationFactory()));
+        registry.Register(new HelpCommands(
+            registry,
+            _bindings,
+            _modeRegistry,
+            _help,
+            new ConfigService(_paths, ReloadConfig),
+            platform));
 
         // The mode manager asks the registry whether a command is an operator, and the
         // mode commands ask the input controller to change mode — so the two are built
@@ -147,7 +156,7 @@ public sealed class MainWindow : Window, IMessageSink
             Children =
             {
                 _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost,
-                _taskPanel, scroller,
+                _taskPanel, new Panel { Children = { scroller, _help } },
             },
         };
 
@@ -192,7 +201,8 @@ public sealed class MainWindow : Window, IMessageSink
 
         try
         {
-            _watcher = new ConfigWatcher(_paths.ConfigFile, ReloadConfig, a => Dispatcher.UIThread.Post(a));
+            _watcher = new ConfigWatcher(
+                _paths.ConfigFile, () => ReloadConfig(), a => Dispatcher.UIThread.Post(a));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -274,6 +284,20 @@ public sealed class MainWindow : Window, IMessageSink
             return;
         }
 
+        // Help is a page to read, not a mode: Escape and q dismiss it, and everything
+        // else is left to the ScrollViewer so arrows and PageDown work as expected.
+        if (_help.IsVisible)
+        {
+            if (e.Key is Key.Escape or Key.Q)
+            {
+                _help.Hide();
+                _list.Focus();
+                e.Handled = true;
+            }
+
+            return;
+        }
+
         if (_input.HandleKey(e))
         {
             e.Handled = true;
@@ -288,7 +312,7 @@ public sealed class MainWindow : Window, IMessageSink
     /// error. Swapping in defaults on every stray tab would make editing the file while
     /// the app runs unusable.
     /// </remarks>
-    private void ReloadConfig()
+    private string? ReloadConfig()
     {
         var result = ConfigFile.Load(_paths.ConfigFile);
 
@@ -297,7 +321,7 @@ public sealed class MainWindow : Window, IMessageSink
             _message = result.Error;
             _messageLevel = MessageLevel.Error;
             UpdateChrome();
-            return;
+            return result.Error;
         }
 
         _config = result.Config;
@@ -314,7 +338,9 @@ public sealed class MainWindow : Window, IMessageSink
         }
 
         _list.RefreshTheme();
+        _help.RefreshTheme();
         UpdateChrome();
+        return null;
     }
 
     private void ApplyUserBindings()

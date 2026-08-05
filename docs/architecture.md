@@ -269,6 +269,29 @@ Two platform details that cost time if rediscovered:
 - Linux: `org.freedesktop.FileManager1.ShowItems` over D-Bus is the only way to get the file
   *selected*; `xdg-open` on the parent is the fallback when no session bus is available.
 
+## Help and configuration
+
+`:help` renders **in the app**, `:config` opens the YAML **outside** it. The split is
+deliberate:
+
+- The question a user asks help is almost always "what key does this". Having to leave a
+  keyboard-driven file manager to find that out is precisely the wrong answer, so the
+  overview is a scrollable overlay bound to `?` and `F1`.
+- Configuration is text editing, which the user already has a tool for. Fjord watches the
+  file and hot-reloads it, so saving in that editor rebinds keys immediately — an in-app
+  editor would be a worse version of something they have already configured.
+
+`HelpText` is a pure function of the registry and the bindings, so it cannot drift from
+what the app actually does — the same reason the config file is generated rather than
+hand-written. It **inverts** the bindings: they are stored keys-to-command, and the useful
+direction is the opposite. Keys from a non-normal mode are labelled `(v)`, because `y` in
+visual mode and `y` in normal mode are genuinely different bindings.
+
+`IConfigService` is deliberately narrow — path, ensure-exists, reload. The plan sketched a
+`Get`/`Set`/`Bind` surface, but `:set` and `:bind` do not exist yet and designing their
+shape before there is a caller would be guessing. It exists at all so `Fjord.Commands` can
+offer `:config` without depending on `Fjord.Config`.
+
 ## The command line
 
 `CommandLine` owns its own `TextBox` and handles Enter/Tab/Up/Down/Escape locally rather

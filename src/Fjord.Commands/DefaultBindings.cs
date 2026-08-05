@@ -73,6 +73,10 @@ public static class DefaultBindings
                 ["<Ctrl+w>"] = "tab-close",
                 ["<Ctrl+Shift+t>"] = "tab-undo-close",
 
+                // Help
+                ["?"] = "help",
+                ["<F1>"] = "help",
+
                 // Modes
                 ["v"] = "visual-mode",
                 [":"] = "command-mode",
