@@ -19,7 +19,7 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 - **File operations.** Copy, move, rename, duplicate, trash, mkdir, touch — queued,
   cancellable, with progress, and **undoable** with `u`.
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
-- **Tabs** with `gt`/`gT`, and history with `Ctrl-o`/`Ctrl-i`.
+- **Tabs** with `L`/`H`, and history with `Ctrl-o`/`Ctrl-i`.
 - **A `:` command line** with history and path completion.
 - **Fuzzy search.** `/` narrows the listing as you type: `fjc` finds `Fjord.Core.csproj`.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
@@ -60,7 +60,7 @@ out of date.
 | `u` `Ctrl-r` | undo / redo |
 | `/` | search — narrows the listing |
 | `S` `gs` | add to scrapbook / open it |
-| `gt` `gT` | next / previous tab |
+| `L` `H` | next / previous tab |
 | `Ctrl-o` `Ctrl-i` | back / forward |
 | `?` | help |
 | `:` | command line |

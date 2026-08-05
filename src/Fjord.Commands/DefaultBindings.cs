@@ -66,9 +66,12 @@ public static class DefaultBindings
                 ["<Escape>"] = "select-none",
                 ["<Ctrl+Shift+i>"] = "select-invert",
 
-                // Tabs
-                ["gt"] = "tab-next",
-                ["gT"] = "tab-prev",
+                // Tabs. H and L rather than vim's gt/gT: h and l already move between
+                // directories here, so shifted they move between tabs, which keeps the
+                // whole left-right axis meaning "sideways" instead of splitting it across
+                // two unrelated conventions.
+                ["L"] = "tab-next",
+                ["H"] = "tab-prev",
                 ["<Ctrl+t>"] = "tab-new",
                 ["<Ctrl+w>"] = "tab-close",
                 ["<Ctrl+Shift+t>"] = "tab-undo-close",
@@ -180,6 +183,14 @@ public static class DefaultBindings
             if (!modes.TryParse(modeName, out var mode))
             {
                 problems.Add($"unknown mode '{modeName}'");
+                continue;
+            }
+
+            if (entries is null)
+            {
+                // "normal:" with nothing under it is valid YAML and deserializes to null.
+                // Easy to produce while editing, and it must not take the app down.
+                problems.Add($"mode '{modeName}' has no bindings");
                 continue;
             }
 
