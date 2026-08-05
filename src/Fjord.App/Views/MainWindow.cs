@@ -41,6 +41,8 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly Border _statusBar;
     private readonly OperationHost _operations;
     private readonly HelpOverlay _help;
+    private readonly Fjord.Storage.SqliteStorage _storage;
+    private readonly SessionHost _sessions;
     private readonly TaskPanel _taskPanel;
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
@@ -111,6 +113,11 @@ public sealed class MainWindow : Window, IMessageSink
 
         registry.Register(new ModeCommands(controller));
         registry.Register(new SearchCommands(controller));
+
+        _storage = new Fjord.Storage.SqliteStorage(Path.Combine(_paths.Data, "fjord.db"));
+        _sessions = new SessionHost(_workspace);
+        registry.Register(new SessionCommands(_storage, _sessions));
+        registry.Register(new ScrapbookCommands(_storage, _sessions));
         registry.Register(new TabCommands());
 
         _commandLine = new CommandLine(
@@ -171,6 +178,7 @@ public sealed class MainWindow : Window, IMessageSink
         {
             RebuildTabBar();
             UpdateChrome();
+            RecordVisit();
         };
         _input.Handled += (_, _) => UpdateChrome();
         _input.CommandLineRequested += (_, initial) => _commandLine.Open(initial);
@@ -211,9 +219,12 @@ public sealed class MainWindow : Window, IMessageSink
             _message ??= $"config watch unavailable: {ex.Message}";
         }
 
+        Closing += (_, _) => SaveSessionQuietly();
+
         Closed += async (_, _) =>
         {
             _watcher?.Dispose();
+            _storage.Dispose();
 
             // Stops any copy still running, rather than leaving it writing after the
             // window is gone.
@@ -225,12 +236,55 @@ public sealed class MainWindow : Window, IMessageSink
         {
             ClampToScreen();
             _list.Focus();
+
             var pane = _workspace.Initialise();
             pane.Changed += (_, _) => UpdateChrome();
-            await pane.NavigateAsync(Environment.CurrentDirectory);
+
+            // The window is already up and interactive here, so restoring cannot delay it
+            // — which was the whole point of not doing this before Opened.
+            await RestoreOrOpenAsync(pane);
         };
 
         bool IsOperator(string name) => registry.Find(name)?.IsOperator == true;
+    }
+
+    /// <summary>
+    /// Restores the last session, or opens the working directory if there is none.
+    /// </summary>
+    /// <remarks>
+    /// A failure here must not stop the app starting with an empty window: a corrupt or
+    /// stale session is annoying, an app that will not open is not usable at all.
+    /// </remarks>
+    private async Task RestoreOrOpenAsync(PaneController pane)
+    {
+        try
+        {
+            if (_storage.LoadSession(Core.Storage.SavedSession.DefaultName) is { Tabs.Count: > 0 } session)
+            {
+                await _sessions.RestoreAsync(session);
+                return;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _message = $"session not restored: {ex.Message}";
+            _messageLevel = MessageLevel.Warning;
+        }
+
+        await pane.NavigateAsync(Environment.CurrentDirectory);
+    }
+
+    /// <summary>Saves the session on the way out, without letting a failure block closing.</summary>
+    private void SaveSessionQuietly()
+    {
+        try
+        {
+            _storage.SaveSession(_sessions.Capture(Core.Storage.SavedSession.DefaultName));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            // Nothing useful to show: the window is already going away.
+        }
     }
 
     /// <summary>
@@ -396,6 +450,32 @@ public sealed class MainWindow : Window, IMessageSink
             };
 
             _tabStrip.Children.Add(chip);
+        }
+    }
+
+    /// <summary>
+    /// Notes the active directory for <c>:recent</c>.
+    /// </summary>
+    /// <remarks>
+    /// Skips the synthetic scrapbook listings, which are not places that can be navigated
+    /// back to.
+    /// </remarks>
+    private void RecordVisit()
+    {
+        var directory = _workspace.Tabs.Count == 0 ? string.Empty : _workspace.ActivePane.Directory;
+
+        if (directory.Length == 0 || directory.StartsWith("scrapbook:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            _storage.RecordVisit(directory);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            // Recents are a convenience; losing one is not worth telling anyone about.
         }
     }
 

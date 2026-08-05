@@ -149,6 +149,75 @@ public sealed class Workspace : IWorkspace
         return true;
     }
 
+    /// <summary>
+    /// Replaces every tab with a saved session's.
+    /// </summary>
+    /// <remarks>
+    /// Navigation for all tabs is started before any is awaited, so restoring a session of
+    /// ten directories reads them concurrently rather than one after another. The active
+    /// tab is awaited last but shown first, so the window is usable while the rest load.
+    /// </remarks>
+    public async Task RestoreAsync(Core.Storage.SavedSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        if (session.Tabs.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var tab in _tabs)
+        {
+            tab.Controller.Deactivate();
+        }
+
+        _tabs.Clear();
+        _closed.Clear();
+
+        var loading = new List<Task>(session.Tabs.Count);
+
+        foreach (var saved in session.Tabs)
+        {
+            var tab = new Tab(_createPane());
+            _tabs.Add(tab);
+            loading.Add(tab.Controller.NavigateAsync(saved.Directory, saved.CursorName));
+        }
+
+        _current = Math.Clamp(session.ActiveTab, 0, _tabs.Count - 1);
+        _tabs[_current].Controller.Activate();
+        Changed?.Invoke(this, EventArgs.Empty);
+
+        await Task.WhenAll(loading).ConfigureAwait(true);
+
+        // Selection is restored by path once the listings exist, since rows mean nothing
+        // until then.
+        for (var i = 0; i < _tabs.Count && i < session.Tabs.Count; i++)
+        {
+            RestoreSelection(_tabs[i].Controller, session.Tabs[i].Selection);
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static void RestoreSelection(PaneController pane, IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var wanted = paths.ToHashSet(StringComparer.Ordinal);
+        var view = pane.Snapshot?.View ?? default;
+
+        for (var row = 0; row < view.Count; row++)
+        {
+            if (pane.PathAt(row) is { } path && wanted.Contains(path))
+            {
+                pane.Selection[row] = true;
+            }
+        }
+    }
+
     public void MoveTab(int from, int to)
     {
         if (from < 0 || from >= _tabs.Count || from == to)

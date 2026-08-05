@@ -234,6 +234,48 @@ public sealed class PaneController : IPane
         await LoadAsync(snapshot, selectName, cts.Token).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// Shows an arbitrary set of paths as a listing, instead of a directory.
+    /// </summary>
+    /// <remarks>
+    /// Used by the scrapbook, whose contents come from many directories at once. Each
+    /// entry's name is its full path, which is what lets the rest of the app treat it as an
+    /// ordinary listing: Path.Combine returns its second argument when that is rooted, so
+    /// PathAt and enter resolve correctly against the synthetic label.
+    /// <para>
+    /// No enumeration is started, so there is nothing to cancel — but the previous
+    /// navigation is still cancelled, or its batches would arrive into the pane afterwards
+    /// and overwrite this.
+    /// </para>
+    /// </remarks>
+    public async Task ShowVirtualAsync(string label, IReadOnlyList<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var previous = _navigation;
+        _navigation = null;
+
+        if (previous is not null)
+        {
+            await previous.CancelAsync().ConfigureAwait(true);
+            previous.Dispose();
+        }
+
+        var snapshot = new DirectorySnapshot(label, Sort, Filter with { ShowHidden = true });
+        snapshot.Append(paths.Select(SessionHost.DescribePath).ToArray());
+        snapshot.Complete();
+
+        Snapshot = snapshot;
+
+        if (_isActive)
+        {
+            _list.Snapshot = snapshot;
+            _list.SyncView();
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Re-lists the current directory, keeping the cursor where it was.</summary>
     public Task ReloadAsync() =>
         Directory.Length > 0

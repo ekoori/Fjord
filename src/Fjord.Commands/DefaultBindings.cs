@@ -78,6 +78,10 @@ public static class DefaultBindings
                 ["/"] = "search-open",
                 ["<Ctrl+l>"] = "search-clear",
 
+                // Scrapbook. "s" is taken by sort, so the collect verb gets "S".
+                ["S"] = "scrap-add",
+                ["gs"] = "scrap-open",
+
                 // Help
                 ["?"] = "help",
                 ["<F1>"] = "help",
@@ -116,6 +120,7 @@ public static class DefaultBindings
                 ["y"] = "yank-paths",
                 ["d"] = "trash",
                 ["x"] = "cut-paths",
+                ["S"] = "scrap-add",
                 ["o"] = "visual-swap",
                 ["v"] = "mode-leave",
                 ["<Escape>"] = "mode-leave",
