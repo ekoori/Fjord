@@ -251,6 +251,93 @@ public sealed class MainWindow : Window, IMessageSink
     }
 
     /// <summary>
+    /// Scrolls the help page with the same keys that move the file list.
+    /// </summary>
+    /// <remarks>
+    /// Help is a page to read, not a mode, so it takes only movement keys and a way out.
+    /// But a keyboard-driven app whose help needs the mouse to read is a poor advert for
+    /// itself, so j/k, the arrows, Ctrl-d/u, gg/G and the page keys all work here as they
+    /// do in the list.
+    /// </remarks>
+    private void HandleHelpKey(KeyEventArgs e)
+    {
+        var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        var control = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+
+        switch (e.Key)
+        {
+            case Key.Escape or Key.Q:
+                _help.Hide();
+                _list.Focus();
+                break;
+
+            case Key.J or Key.Down:
+                _help.ScrollLines(1);
+                break;
+
+            case Key.K or Key.Up:
+                _help.ScrollLines(-1);
+                break;
+
+            case Key.D when control:
+                _help.ScrollPages(0.5);
+                break;
+
+            case Key.U when control:
+                _help.ScrollPages(-0.5);
+                break;
+
+            case Key.F when control:
+            case Key.PageDown or Key.Space:
+                _help.ScrollPages(1);
+                break;
+
+            case Key.B when control:
+            case Key.PageUp:
+                _help.ScrollPages(-1);
+                break;
+
+            // G goes to the end, gg to the start — but a single g has nothing to buffer
+            // against here, so Home is the pairing rather than a two-key sequence.
+            case Key.G when shift:
+            case Key.End:
+                _help.ScrollToBottom();
+                break;
+
+            case Key.G:
+            case Key.Home:
+                _help.ScrollToTop();
+                break;
+
+            default:
+                return;
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// The window and taskbar icon.
+    /// </summary>
+    /// <remarks>
+    /// Loaded from an embedded resource rather than a file beside the executable, so it
+    /// survives a single-file publish. A missing icon is not worth failing to start over —
+    /// the window simply gets the platform default.
+    /// </remarks>
+    private static WindowIcon? LoadIcon()
+    {
+        try
+        {
+            using var stream = AssetLoader.Open(new Uri("avares://Fjord.App/Assets/fjord.ico"));
+            return new WindowIcon(stream);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or IOException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Restores the last session, or opens the working directory if there is none.
     /// </summary>
     /// <remarks>
@@ -341,17 +428,9 @@ public sealed class MainWindow : Window, IMessageSink
             return;
         }
 
-        // Help is a page to read, not a mode: Escape and q dismiss it, and everything
-        // else is left to the ScrollViewer so arrows and PageDown work as expected.
         if (_help.IsVisible)
         {
-            if (e.Key is Key.Escape or Key.Q)
-            {
-                _help.Hide();
-                _list.Focus();
-                e.Handled = true;
-            }
-
+            HandleHelpKey(e);
             return;
         }
 
@@ -576,25 +655,4 @@ public sealed class MainWindow : Window, IMessageSink
         Child = content,
         HorizontalAlignment = HorizontalAlignment.Stretch,
     };
-
-    /// <summary>
-    /// The window and taskbar icon.
-    /// </summary>
-    /// <remarks>
-    /// Loaded from an embedded resource rather than a file beside the executable, so it
-    /// survives a single-file publish. A missing icon is not worth failing to start over —
-    /// the window simply gets the platform default.
-    /// </remarks>
-    private static WindowIcon? LoadIcon()
-    {
-        try
-        {
-            using var stream = AssetLoader.Open(new Uri("avares://Fjord.App/Assets/fjord.ico"));
-            return new WindowIcon(stream);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or IOException or ArgumentException)
-        {
-            return null;
-        }
-    }
 }

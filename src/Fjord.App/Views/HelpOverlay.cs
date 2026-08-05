@@ -81,6 +81,36 @@ public sealed class HelpOverlay : Border, IHelpView
 
     public void Hide() => IsVisible = false;
 
+    /// <summary>
+    /// Scrolls by whole lines, so j and k move a readable amount.
+    /// </summary>
+    /// <remarks>
+    /// A ScrollViewer's own line step is a fixed number of DIPs unrelated to the font, so
+    /// at a larger font size j would move less than a line and at a smaller one more than
+    /// two. Deriving the step from the theme keeps one press meaning one line.
+    /// </remarks>
+    public void ScrollLines(int lines)
+    {
+        var step = _theme.FontSize * 1.4;
+        _scroller.Offset = _scroller.Offset.WithY(
+            Math.Clamp(_scroller.Offset.Y + (lines * step), 0, MaxOffset));
+    }
+
+    /// <summary>Scrolls by a screenful, leaving a line of overlap for continuity.</summary>
+    public void ScrollPages(double pages)
+    {
+        var step = Math.Max(_theme.FontSize, _scroller.Viewport.Height - (_theme.FontSize * 1.4));
+        _scroller.Offset = _scroller.Offset.WithY(
+            Math.Clamp(_scroller.Offset.Y + (pages * step), 0, MaxOffset));
+    }
+
+    public void ScrollToTop() => _scroller.Offset = _scroller.Offset.WithY(0);
+
+    public void ScrollToBottom() => _scroller.Offset = _scroller.Offset.WithY(MaxOffset);
+
+    /// <summary>How far down the content can go before the last line is at the bottom.</summary>
+    private double MaxOffset => Math.Max(0, _scroller.Extent.Height - _scroller.Viewport.Height);
+
     /// <summary>Re-applies colours and fonts after a config reload.</summary>
     public void RefreshTheme()
     {
