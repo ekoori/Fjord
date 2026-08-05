@@ -6,6 +6,7 @@
     <Project Path="src/Fjord.Core/Fjord.Core.csproj" />
     <Project Path="src/Fjord.Operations/Fjord.Operations.csproj" />
     <Project Path="src/Fjord.Platform/Fjord.Platform.csproj" />
+    <Project Path="src/Fjord.Storage/Fjord.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Fjord.Tests/Fjord.Tests.csproj" />

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\Fjord.Core\Fjord.Core.csproj" />
     <ProjectReference Include="..\Fjord.Operations\Fjord.Operations.csproj" />
     <ProjectReference Include="..\Fjord.Platform\Fjord.Platform.csproj" />
+    <ProjectReference Include="..\Fjord.Storage\Fjord.Storage.csproj" />
   </ItemGroup>
 
 </Project>

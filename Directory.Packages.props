@@ -18,6 +18,16 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <!--
+      Pinned above what Microsoft.Data.Sqlite pulls: its 2.1.11 native library carries
+      GHSA-2m69-gcr7-jv3q, a high-severity advisory. Transitive pinning is on, so naming
+      the version here is enough to lift the whole graph.
+    -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="2.1.12" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.12" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
