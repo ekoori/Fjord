@@ -150,10 +150,37 @@ public class DirectoryListerTests
     }
 
     [Fact]
-    public async Task CancellationStopsEnumerationPromptly()
+    public async Task ATokenAlreadyCancelledYieldsNothing()
     {
         using var temp = new TempDirectory();
-        temp.CreateMany(5000);
+        temp.CreateMany(200);
+
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in Lister.ListAsync(temp.Path, ListingOptions.Default, cts.Token))
+            {
+                Assert.Fail("nothing should be yielded for an already-cancelled token");
+            }
+        });
+    }
+
+    [Fact]
+    public async Task CancellationStopsEnumerationPromptly()
+    {
+        // Large enough that the producer cannot possibly finish first. With a smaller tree
+        // this raced: the enumeration is a handful of batches against a channel capacity of
+        // four, so reading one batch frees a slot, the producer writes its last batch and
+        // completes normally, and no cancellation is ever observed. That is correct
+        // behaviour — work that finished before the cancel landed is simply done — but it
+        // makes an assertion about cancelling meaningless. Here the producer would need the
+        // consumer to keep reading, and it stops after one.
+        const int total = 20_000;
+
+        using var temp = new TempDirectory();
+        temp.CreateMany(total);
 
         using var cts = new CancellationTokenSource();
         var seen = 0;
@@ -167,9 +194,9 @@ public class DirectoryListerTests
             }
         });
 
-        // Cancellation is checked per batch, so it stops within one batch rather than
-        // running the remaining thousands of entries to completion.
-        Assert.True(seen < 5000, $"expected to stop early, saw {seen} of 5000");
+        // Cancellation is checked per batch, so it stops within a batch or two of the
+        // buffered ones rather than running the remaining thousands to completion.
+        Assert.True(seen < total, $"expected to stop early, saw {seen} of {total}");
     }
 
     [Fact]
