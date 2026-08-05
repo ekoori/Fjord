@@ -303,8 +303,10 @@ public class SettingsSchemaTests
     }
 
     [Fact]
-    public void DefaultBindingsAreRenderedForReference()
+    public void DefaultBindingsAreWrittenAsLiveEntries()
     {
+        // Live, not commented out: a commented block reads as documentation you have to
+        // retype, and editing in place is the point of opening the file.
         var defaults = new Dictionary<string, IReadOnlyDictionary<string, string>>
         {
             ["normal"] = new Dictionary<string, string> { ["j"] = "move-down", ["n"] = "next-match" },
@@ -312,9 +314,113 @@ public class SettingsSchemaTests
 
         var rendered = SettingsSchema.Render(defaults);
 
-        // Commented out, so the user layer does not duplicate every default, but quoted
-        // so copying a line into the live section still works.
-        Assert.Contains("#     \"j\": \"move-down\"", rendered, StringComparison.Ordinal);
-        Assert.Contains("#     \"n\": \"next-match\"", rendered, StringComparison.Ordinal);
+        Assert.Contains("    \"j\": \"move-down\"", rendered, StringComparison.Ordinal);
+        Assert.Contains("    \"n\": \"next-match\"", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("bindings: {}", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EachBindingCarriesItsCommandDescription()
+    {
+        var defaults = new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            ["normal"] = new Dictionary<string, string> { ["j"] = "move-down" },
+        };
+
+        var descriptions = new Dictionary<string, string> { ["move-down"] = "Move the cursor down" };
+
+        var rendered = SettingsSchema.Render(defaults, descriptions);
+
+        Assert.Contains("    # Move the cursor down", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABindingWithNoKnownDescriptionIsStillWritten()
+    {
+        var defaults = new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            ["normal"] = new Dictionary<string, string> { ["j"] = "mystery-command" },
+        };
+
+        Assert.Contains(
+            "\"j\": \"mystery-command\"",
+            SettingsSchema.Render(defaults, new Dictionary<string, string>()),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheGeneratedFileParsesBackWithEveryShippedBinding()
+    {
+        // The real risk of writing bindings live: one bad quote and the whole file stops
+        // loading. Every shipped key goes through the round trip.
+        var path = Path.Combine(Path.GetTempPath(), "fjord-tests", Guid.NewGuid().ToString("n") + ".yaml");
+        ConfigFile.WriteDefault(path, Fjord.Commands.DefaultBindings.All);
+
+        var result = ConfigFile.Load(path);
+        Assert.True(result.Succeeded, result.Error);
+
+        foreach (var (mode, expected) in Fjord.Commands.DefaultBindings.All)
+        {
+            Assert.True(result.Config.Bindings.TryGetValue(mode, out var actual), $"mode {mode} missing");
+
+            foreach (var (keys, command) in expected)
+            {
+                Assert.True(actual!.ContainsKey(keys), $"{mode}/{keys} was lost");
+                Assert.Equal(command, actual[keys]);
+            }
+        }
+    }
+
+    [Fact]
+    public void EveryShippedBindingHasAnExplanationToWriteAboveIt()
+    {
+        // The pairing the app actually writes with. A binding whose command the catalogue
+        // does not know still lands in the file, but silently without its comment — so the
+        // file quietly stops explaining itself. Catch that here rather than by reading it.
+        var descriptions = Fjord.Commands.CommandCatalogue.Descriptions;
+
+        var undescribed = Fjord.Commands.DefaultBindings.All
+            .SelectMany(mode => mode.Value.Values)
+            .Select(command => command.Split(' ')[0])
+            .Where(name => string.IsNullOrEmpty(descriptions.GetValueOrDefault(name)))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(undescribed);
+    }
+
+    [Fact]
+    public void TheCatalogueAgreesWithTheRegistryItStandsInFor()
+    {
+        // The catalogue reads attributes; the registry reads built instances. They describe
+        // the same commands, and the generated file is only trustworthy while they match.
+        var registry = new Fjord.Commands.CommandRegistry();
+        registry.Register(new Fjord.Commands.NavigationCommands());
+
+        foreach (var command in registry.All)
+        {
+            Assert.Equal(
+                command.Description,
+                Fjord.Commands.CommandCatalogue.Descriptions.GetValueOrDefault(command.Name));
+        }
+    }
+
+    [Fact]
+    public void AModeWithNoBindingsDoesNotCrashTheLoader()
+    {
+        // "normal:" with nothing under it is valid YAML that deserializes to null, and is
+        // easy to produce while editing a file full of live entries.
+        var path = Path.Combine(Path.GetTempPath(), "fjord-tests", Guid.NewGuid().ToString("n") + ".yaml");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "bindings:\n  normal:\n");
+
+        var config = ConfigFile.Load(path).Config;
+        var bindings = new Fjord.Core.Input.KeyBindings();
+        var modes = new Fjord.Core.Input.KeyModeRegistry();
+
+        var problems = Fjord.Commands.DefaultBindings.Apply(bindings, modes, config.Bindings);
+
+        Assert.Single(problems);
+        Assert.Contains("no bindings", problems[0], StringComparison.Ordinal);
     }
 }

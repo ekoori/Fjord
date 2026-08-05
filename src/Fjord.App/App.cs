@@ -45,7 +45,7 @@ public sealed class App : Application
     {
         try
         {
-            ConfigFile.WriteDefaultIfMissing(paths.ConfigFile);
+            ConfigService.WriteDefaultIfMissing(paths.ConfigFile);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

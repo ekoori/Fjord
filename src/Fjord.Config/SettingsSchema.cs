@@ -67,10 +67,17 @@ public static class SettingsSchema
     /// Renders the documented default configuration file.
     /// </summary>
     /// <param name="defaultBindings">
-    /// Shipped bindings, written commented-out so the file documents them without the user
-    /// layer duplicating every default.
+    /// Shipped bindings, written into the file as live entries so they can be edited in
+    /// place.
     /// </param>
-    public static string Render(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null)
+    /// <param name="descriptions">
+    /// Command name to one-line description, so every binding can be annotated. Comes from
+    /// the command registry, which is why the file cannot describe a command that does not
+    /// exist.
+    /// </param>
+    public static string Render(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null,
+        IReadOnlyDictionary<string, string>? descriptions = null)
     {
         var output = new StringBuilder();
 
@@ -99,7 +106,7 @@ public static class SettingsSchema
             output.AppendLine();
         }
 
-        EmitBindings(output, defaultBindings);
+        EmitBindings(output, defaultBindings, descriptions);
         return output.ToString();
     }
 
@@ -130,33 +137,72 @@ public static class SettingsSchema
         }
     }
 
+    /// <summary>
+    /// Writes the bindings section with every default present and annotated.
+    /// </summary>
+    /// <remarks>
+    /// Written as <b>live entries</b>, not commented-out reference. A commented block reads
+    /// as documentation you have to retype; live entries can be edited in place, which is
+    /// the point of opening the file at all.
+    /// <para>
+    /// The cost is that these become the user's own layer, so a default changed in a later
+    /// version will not reach an existing config. That is the usual bargain for a generated
+    /// keymap, and the file says so rather than leaving it to be deduced.
+    /// </para>
+    /// </remarks>
     private static void EmitBindings(
-        StringBuilder output, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaults)
+        StringBuilder output,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaults,
+        IReadOnlyDictionary<string, string>? descriptions)
     {
         var setting = Find("bindings")!;
 
         output.Append("# ").AppendLine(setting.Doc);
         output.AppendLine("#");
-        output.AppendLine("# Only overrides go here; the defaults below are shown for reference.");
-        output.AppendLine("# Set a command to an empty string to unbind a default.");
-        output.AppendLine("bindings: {}");
+        output.AppendLine("# Every default is listed below so it can be changed in place. Set a command to");
+        output.AppendLine("# an empty string to unbind the key entirely.");
+        output.AppendLine("#");
+        output.AppendLine("# Because these are now yours, a default changed in a future version will not");
+        output.AppendLine("# reach this file. Delete a mode's block to go back to the shipped defaults.");
+        output.AppendLine("#");
+        output.AppendLine("# Modes:");
+        output.AppendLine("#   normal            the mode Fjord sits in");
+        output.AppendLine("#   visual            after v, with a selection anchored");
+        output.AppendLine("#   operator-pending  after an operator such as d or y, awaiting a motion");
+        output.AppendLine("#");
+        output.AppendLine("# Key syntax: a bare character, or <> for anything else - <Ctrl+d>, <Escape>,");
+        output.AppendLine("# <Space>, <Return>, <PgDown>, <F1>. Multi-key sequences are written together,");
+        output.AppendLine("# as in \"gg\". Run :help for what each command does.");
 
         if (defaults is null || defaults.Count == 0)
         {
+            output.AppendLine("bindings: {}");
             return;
         }
 
-        output.AppendLine();
-        output.AppendLine("# --- Defaults, for reference ---");
+        output.AppendLine("bindings:");
 
         foreach (var (mode, bindings) in defaults.OrderBy(m => m.Key, StringComparer.Ordinal))
         {
-            output.Append("#   ").Append(mode).AppendLine(":");
+            output.AppendLine();
+            output.Append("  ").Append(mode).AppendLine(":");
 
             foreach (var (keys, command) in bindings.OrderBy(b => b.Key, StringComparer.Ordinal))
             {
-                output.Append("#     ").Append(QuoteKey(keys)).Append(": ").AppendLine(QuoteKey(command));
+                if (descriptions?.GetValueOrDefault(FirstWord(command)) is { Length: > 0 } description)
+                {
+                    output.Append("    # ").AppendLine(description);
+                }
+
+                output.Append("    ").Append(QuoteKey(keys)).Append(": ").AppendLine(QuoteKey(command));
             }
         }
     }
+
+    private static string FirstWord(string command)
+    {
+        var end = command.IndexOf(' ', StringComparison.Ordinal);
+        return end < 0 ? command : command[..end];
+    }
+
 }

@@ -28,18 +28,24 @@ public sealed class ConfigService : IConfigService
 
     public string ConfigFilePath => _paths.ConfigFile;
 
-    public bool EnsureExists() => ConfigFile.WriteDefaultIfMissing(ConfigFilePath, DefaultBindingsForReference);
-
-    public string? Reload() => _reload();
+    public bool EnsureExists() => WriteDefaultIfMissing(ConfigFilePath);
 
     /// <summary>
-    /// The shipped bindings, written into the generated file as commented reference.
+    /// Writes the generated default file, if none exists.
     /// </summary>
     /// <remarks>
-    /// So the file a user opens with <c>:config</c> shows every default next to the
-    /// <c>bindings:</c> section they are about to edit, rather than making them guess the
-    /// syntax or go looking for documentation.
+    /// Static and shared so every route to a fresh config — first run, the
+    /// <c>--write-default-config</c> switch, and <c>:config</c> — produces the same file.
+    /// They diverged once, and the switch silently emitted an empty bindings section.
     /// </remarks>
-    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>
-        DefaultBindingsForReference => Commands.DefaultBindings.All;
+    public static bool WriteDefaultIfMissing(string path) =>
+        ConfigFile.WriteDefaultIfMissing(
+            path, Commands.DefaultBindings.All, Commands.CommandCatalogue.Descriptions);
+
+    /// <summary>Writes the generated default file, replacing anything already there.</summary>
+    public static void WriteDefault(string path) =>
+        ConfigFile.WriteDefault(
+            path, Commands.DefaultBindings.All, Commands.CommandCatalogue.Descriptions);
+
+    public string? Reload() => _reload();
 }

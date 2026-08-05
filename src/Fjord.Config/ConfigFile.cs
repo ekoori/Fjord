@@ -19,10 +19,10 @@ public sealed record ConfigLoadResult(FjordConfig Config, string? Error, bool Ex
 /// <summary>Reads and writes <c>config.yaml</c>.</summary>
 public static class ConfigFile
 {
+    // IgnoreUnmatchedProperties: a setting removed in a later version must not stop an
+    // older config from loading.
     private static readonly IDeserializer Deserializer = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
-
-        // A setting removed in a later version must not stop an older config from loading.
         .IgnoreUnmatchedProperties()
         .Build();
 
@@ -63,22 +63,26 @@ public static class ConfigFile
 
     /// <summary>Writes the generated default file, creating its directory.</summary>
     public static void WriteDefault(
-        string path, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null)
+        string path,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null,
+        IReadOnlyDictionary<string, string>? descriptions = null)
     {
         FjordPaths.EnsureDirectoryFor(path);
-        File.WriteAllText(path, SettingsSchema.Render(defaultBindings));
+        File.WriteAllText(path, SettingsSchema.Render(defaultBindings, descriptions));
     }
 
     /// <summary>Writes the default file only when none exists, and reports whether it did.</summary>
     public static bool WriteDefaultIfMissing(
-        string path, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null)
+        string path,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaultBindings = null,
+        IReadOnlyDictionary<string, string>? descriptions = null)
     {
         if (File.Exists(path))
         {
             return false;
         }
 
-        WriteDefault(path, defaultBindings);
+        WriteDefault(path, defaultBindings, descriptions);
         return true;
     }
 

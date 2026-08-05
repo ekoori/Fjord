@@ -41,7 +41,7 @@ public static class Program
     {
         try
         {
-            ConfigFile.WriteDefault(path);
+            ConfigService.WriteDefault(path);
             Console.WriteLine($"Wrote default config to {path}");
             return 0;
         }
