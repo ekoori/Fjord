@@ -7,8 +7,9 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 
 [![CI](https://github.com/ekoori/Fjord/actions/workflows/ci.yml/badge.svg)](https://github.com/ekoori/Fjord/actions/workflows/ci.yml)
 
-> **Status: early.** The interaction model and file operations work. Search, sessions and
-> the scrapbook are not built yet. There are no releases — you build it yourself.
+> **Status: early but complete for v1.** Everything on the original v1 list is built.
+> Previews, an embedded terminal, git integration and plugins are not. There are no
+> releases yet — you build it yourself.
 
 ## What works
 
@@ -20,6 +21,9 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
 - **Tabs** with `gt`/`gT`, and history with `Ctrl-o`/`Ctrl-i`.
 - **A `:` command line** with history and path completion.
+- **Fuzzy search.** `/` narrows the listing as you type: `fjc` finds `Fjord.Core.csproj`.
+- **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
+- **Scrapbooks.** Collect entries from anywhere into a virtual list and act on them together.
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
 - **Large directories.** 100,000 entries paints its first screen in about 25 ms.
 
@@ -54,6 +58,8 @@ out of date.
 | `d` | trash — an operator, so `d3j` takes four rows |
 | `D` | trash the selection |
 | `u` `Ctrl-r` | undo / redo |
+| `/` | search — narrows the listing |
+| `S` `gs` | add to scrapbook / open it |
 | `gt` `gT` | next / previous tab |
 | `Ctrl-o` `Ctrl-i` | back / forward |
 | `?` | help |
