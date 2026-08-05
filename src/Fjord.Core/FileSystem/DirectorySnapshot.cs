@@ -155,7 +155,7 @@ public sealed class DirectorySnapshot
         }
 
         var entries = _entries;
-        var comparer = _sort.CreateComparer();
+        var comparer = _sort.CreateComparer(_filter);
         var addedArray = added.ToArray();
         Array.Sort(addedArray, (a, b) => comparer.Compare(entries[a], entries[b]));
 
@@ -187,7 +187,7 @@ public sealed class DirectorySnapshot
     {
         var entries = _entries;
         var count = _count;
-        var comparer = _sort.CreateComparer();
+        var comparer = _sort.CreateComparer(_filter);
 
         var view = new List<int>(count);
         for (var i = 0; i < count; i++)

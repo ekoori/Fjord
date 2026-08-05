@@ -142,6 +142,7 @@ public class CompletionEngineTests
         registry.Register(new NavigationCommands());
         registry.Register(new ModeCommands(new FakeModeHost()));
         registry.Register(new TabCommands());
+        registry.Register(new SearchCommands(new FakeModeHost()));
         registry.Register(new PlatformCommands(new Fjord.Tests.Platform.FakePlatform()));
         registry.Register(new OperationCommands(
             new Fjord.Tests.Operations.FakeOperationHost(),

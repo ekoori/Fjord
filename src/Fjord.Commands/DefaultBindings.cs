@@ -73,6 +73,11 @@ public static class DefaultBindings
                 ["<Ctrl+w>"] = "tab-close",
                 ["<Ctrl+Shift+t>"] = "tab-undo-close",
 
+                // Search. Escape already clears the selection; it clears the filter too,
+                // which is the more urgent of the two when one is active.
+                ["/"] = "search-open",
+                ["<Ctrl+l>"] = "search-clear",
+
                 // Help
                 ["?"] = "help",
                 ["<F1>"] = "help",

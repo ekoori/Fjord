@@ -43,6 +43,35 @@ public sealed record SortSpec(
     /// <summary>Builds the comparer this spec describes.</summary>
     public IComparer<FileEntry> CreateComparer() => new EntryComparer(this);
 
+    /// <summary>
+    /// Builds the comparer for a spec and an active filter.
+    /// </summary>
+    /// <remarks>
+    /// A fuzzy filter takes over the ordering: while searching, the most relevant match
+    /// belongs at the top, and alphabetical order among a handful of survivors is not what
+    /// the user is looking at the list for. Without a fuzzy filter this is exactly
+    /// <see cref="CreateComparer()"/>.
+    /// </remarks>
+    public IComparer<FileEntry> CreateComparer(FilterSpec filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+
+        return filter is { Fuzzy: true, HasNameFilter: true }
+            ? new RelevanceComparer(filter, new EntryComparer(this))
+            : new EntryComparer(this);
+    }
+
+    /// <summary>Best match first, with the normal order breaking ties.</summary>
+    private sealed class RelevanceComparer(FilterSpec filter, IComparer<FileEntry> fallback)
+        : IComparer<FileEntry>
+    {
+        public int Compare(FileEntry x, FileEntry y)
+        {
+            var byScore = filter.Score(y).CompareTo(filter.Score(x));
+            return byScore != 0 ? byScore : fallback.Compare(x, y);
+        }
+    }
+
     private sealed class EntryComparer(SortSpec spec) : IComparer<FileEntry>
     {
         public int Compare(FileEntry x, FileEntry y)

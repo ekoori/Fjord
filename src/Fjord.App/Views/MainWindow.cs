@@ -110,6 +110,7 @@ public sealed class MainWindow : Window, IMessageSink
         _input = controller;
 
         registry.Register(new ModeCommands(controller));
+        registry.Register(new SearchCommands(controller));
         registry.Register(new TabCommands());
 
         _commandLine = new CommandLine(
