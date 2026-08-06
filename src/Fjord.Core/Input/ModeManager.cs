@@ -59,9 +59,16 @@ public sealed class ModeManager
     private readonly List<KeyInfo> _buffer = [];
     private readonly StringBuilder _count = new();
 
+    // The single keystroke that resolved the binding being dispatched, or null when it took
+    // more than one. Only meaningful for the duration of one Resolve call.
+    private KeyInfo? _armedBy;
+
     private string? _pendingOperator;
     private int? _pendingOperatorCount;
     private char? _pendingRegister;
+
+    // The key that armed the operator, so pressing it again can mean "this line".
+    private KeyInfo? _pendingOperatorKey;
 
     /// <param name="isOperator">
     /// Whether a command name waits for a motion. A delegate rather than a reference to
@@ -166,6 +173,16 @@ public sealed class ModeManager
             return new KeyResult(KeyDisposition.Consumed);
         }
 
+        // vim's doubling: an operator repeated acts on the current line, so dd trashes the
+        // entry under the cursor and 3yy yanks three. Checked before the buffer is touched,
+        // because in operator-pending mode the second d is not a binding to look up — d is
+        // not bound there at all, and without this it would fall through to "no match" and
+        // silently abandon the operator.
+        if (Mode == KeyMode.Operator && _buffer.Count == 0 && _pendingOperatorKey == key)
+        {
+            return ResolveDoubled();
+        }
+
         _buffer.Add(key);
         var typed = new KeySequence(_buffer.ToArray());
         var match = _bindings.Match(Mode, typed);
@@ -175,6 +192,10 @@ public sealed class ModeManager
             var count = _count.Length > 0 && int.TryParse(_count.ToString(), out var parsed)
                 ? parsed
                 : (int?)null;
+
+            // Remembered for the doubling check: Resolve is where an operator is armed,
+            // and by then the buffer that produced it has been cleared.
+            _armedBy = _buffer.Count == 1 ? _buffer[0] : null;
 
             ClearPending();
             return Resolve(match.Command!, count);
@@ -252,6 +273,7 @@ public sealed class ModeManager
 
         _pendingOperator = command;
         _pendingOperatorCount = count;
+        _pendingOperatorKey = _armedBy;
         EnterMode(KeyMode.Operator);
         return new KeyResult(KeyDisposition.Consumed);
     }
@@ -277,10 +299,37 @@ public sealed class ModeManager
         return end < 0 ? command : command[..end];
     }
 
+    /// <summary>
+    /// Runs a doubled operator over the rows the count covers, starting at the cursor.
+    /// </summary>
+    /// <remarks>
+    /// Expressed as the motion <c>move-down</c> by one less than the count, so the whole
+    /// range machinery is reused: the dispatcher runs it, diffs the cursor and gets exactly
+    /// the rows <c>3dd</c> should cover. A count of one moves nothing and covers one row.
+    /// </remarks>
+    private KeyResult ResolveDoubled()
+    {
+        var second = _count.Length > 0 && int.TryParse(_count.ToString(), out var parsed)
+            ? parsed
+            : (int?)null;
+
+        var op = _pendingOperator!;
+        var register = _pendingRegister;
+        var rows = Multiply(_pendingOperatorCount, second) ?? 1;
+
+        ClearPending();
+        ClearOperator();
+        EnterMode(KeyMode.Normal);
+
+        return new KeyResult(
+            KeyDisposition.Consumed, "move-down", Math.Max(0, rows - 1), op, register);
+    }
+
     private void ClearOperator()
     {
         _pendingOperator = null;
         _pendingOperatorCount = null;
+        _pendingOperatorKey = null;
         _pendingRegister = null;
     }
 

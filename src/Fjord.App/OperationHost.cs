@@ -70,6 +70,35 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
 
     public Fjord.Core.Registers.RegisterFile Registers { get; } = new();
 
+    /// <summary>
+    /// Asks the question, or does not.
+    /// </summary>
+    /// <remarks>
+    /// Supplied by the window, which owns the keyboard and reads the setting that decides
+    /// whether a prompt appears. Unset means no prompt, which is what a test wants.
+    /// </remarks>
+    public Action<string, Action>? Confirmation { get; set; }
+
+    /// <summary>Puts text on the system clipboard. Supplied by the window.</summary>
+    public Func<string, Task>? ClipboardWriter { get; set; }
+
+    public void Confirm(string question, Action confirmed)
+    {
+        ArgumentNullException.ThrowIfNull(confirmed);
+
+        if (Confirmation is { } ask)
+        {
+            ask(question, confirmed);
+        }
+        else
+        {
+            confirmed();
+        }
+    }
+
+    public Task SetClipboardTextAsync(string text) =>
+        ClipboardWriter?.Invoke(text) ?? Task.CompletedTask;
+
     /// <summary>The unnamed register, which is what a bare yank and a bare paste use.</summary>
     public ClipboardContents Clipboard
     {
@@ -126,14 +155,6 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
     public ValueTask DisposeAsync() => _queue.DisposeAsync();
 
     /// <summary>
-    /// Refreshes the view once an operation stops changing the filesystem.
-    /// </summary>
-    /// <remarks>
-    /// Filesystem watching is not in M1, so the listing has to be told. Refreshing on the
-    /// operation ending — rather than per item — keeps a bulk copy from re-reading the
-    /// directory hundreds of times.
-    /// </remarks>
-    /// <summary>
     /// Writes one line per operation state change.
     /// </summary>
     /// <remarks>
@@ -166,6 +187,14 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Refreshes the view once an operation stops changing the filesystem.
+    /// </summary>
+    /// <remarks>
+    /// Filesystem watching is not in M1, so the listing has to be told. Refreshing on the
+    /// operation ending — rather than per item — keeps a bulk copy from re-reading the
+    /// directory hundreds of times.
+    /// </remarks>
     private void WatchForSettle(OperationHandle handle)
     {
         void OnChanged(object? sender, OperationHandle changed)

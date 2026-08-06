@@ -26,6 +26,31 @@ internal sealed class FakeOperationHost : IOperationHost
 
     public void Enqueue(IFileOperation operation) => Enqueued.Add(operation.Description);
 
+    /// <summary>Questions the commands asked, in order.</summary>
+    public List<string> Questions { get; } = [];
+
+    /// <summary>Whether Confirm proceeds. Defaults to yes so tests opt into refusing.</summary>
+    public bool ConfirmAnswer { get; set; } = true;
+
+    /// <summary>What the last yank-text put on the system clipboard.</summary>
+    public string? ClipboardText { get; private set; }
+
+    public void Confirm(string question, Action confirmed)
+    {
+        Questions.Add(question);
+
+        if (ConfirmAnswer)
+        {
+            confirmed();
+        }
+    }
+
+    public Task SetClipboardTextAsync(string text)
+    {
+        ClipboardText = text;
+        return Task.CompletedTask;
+    }
+
     public Task<string?> UndoAsync(CancellationToken ct = default)
     {
         var description = NextUndoDescription;
@@ -382,5 +407,106 @@ public class OperationCommandTests
                 await task;
             }
         }
+    }
+
+    [Fact]
+    public void TrashAsksBeforeQueuingAnything()
+    {
+        var (parser, host) = Setup();
+
+        parser.Execute("trash", Context(Pane(), range: new EntryRange(0, 1)));
+
+        Assert.Single(host.Questions);
+        Assert.Equal(["trash:a.txt|b.txt"], host.Enqueued);
+    }
+
+    [Fact]
+    public void DecliningTheQuestionTrashesNothing()
+    {
+        var (parser, host) = Setup();
+        host.ConfirmAnswer = false;
+
+        parser.Execute("trash", Context(Pane(), range: new EntryRange(0, 1)));
+
+        Assert.Single(host.Questions);
+        Assert.Empty(host.Enqueued);
+    }
+
+    [Fact]
+    public void OneEntryIsNamedInTheQuestion()
+    {
+        // "Move 1 entry to the trash?" tells you nothing you did not already know. The
+        // name is the whole point of asking.
+        var (parser, host) = Setup();
+
+        parser.Execute("trash", Context(Pane(), range: new EntryRange(0, 0)));
+
+        Assert.Contains("a.txt", host.Questions[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrashSelectionAsksToo()
+    {
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[0] = true;
+        pane.Selection[2] = true;
+
+        parser.Execute("trash-selection", Context(pane));
+
+        Assert.Single(host.Questions);
+        Assert.Equal(["trash:a.txt|c.txt"], host.Enqueued);
+    }
+
+    [Fact]
+    public void TrashingNothingAsksNothing()
+    {
+        // An empty range must not put a question on screen that would trash nothing.
+        var (parser, host) = Setup();
+        var pane = new FakePane("/tmp");
+
+        parser.Execute("trash", Context(pane, range: new EntryRange(0, 0)));
+
+        Assert.Empty(host.Questions);
+        Assert.Empty(host.Enqueued);
+    }
+
+    [Fact]
+    public void YankTextPutsFullPathsOnTheSystemClipboard()
+    {
+        // Distinct from yy, which marks files for Fjord to copy. This is for pasting a path
+        // into a terminal or a chat message.
+        var (parser, host) = Setup();
+
+        parser.Execute("yank-text", Context(Pane(), range: new EntryRange(0, 1)));
+
+        Assert.Equal(
+            string.Join(Environment.NewLine, Path.Combine("/tmp", "a.txt"), Path.Combine("/tmp", "b.txt")),
+            host.ClipboardText);
+    }
+
+    [Fact]
+    public void YankTextLeavesTheRegistersAlone()
+    {
+        var (parser, host) = Setup();
+        host.Clipboard = new ClipboardContents(["/kept.txt"], Cut: false);
+
+        parser.Execute("yank-text", Context(Pane(), range: new EntryRange(0, 0)));
+
+        Assert.Equal(["/kept.txt"], host.Clipboard.Paths);
+    }
+
+    [Fact]
+    public void YankTextPrefersTheSpaceSelection()
+    {
+        // Copying paths as text is something you do to a set you picked out, so a selection
+        // wins over the span a motion covered.
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[3] = true;
+
+        parser.Execute("yank-text", Context(pane, range: new EntryRange(0, 1)));
+
+        Assert.Equal(Path.Combine("/tmp", "d.txt"), host.ClipboardText);
     }
 }

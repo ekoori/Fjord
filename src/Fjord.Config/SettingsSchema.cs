@@ -56,6 +56,10 @@ public static class SettingsSchema
         new("listing.show_hidden", "true | false", "false",
             "Show dotfiles and entries carrying the hidden attribute."),
 
+        new("behaviour.confirm_trash", "true | false", "true",
+            "Ask before moving anything to the trash. Trashing is undoable either way; the "
+            + "question is there to catch the keystroke, not to protect the files."),
+
         new("logging.level", "off | error | warning | information | debug | trace", "information",
             "How much is written to the log file. Read at startup only, and off writes no "
             + "file at all. Run :config-path to find the directory."),

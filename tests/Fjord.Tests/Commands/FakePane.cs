@@ -164,6 +164,19 @@ public sealed class FakeModeHost : IModeHost
 
     public void ReadName(NameTarget target) => Actions.Add($"read-name:{target}");
 
+    /// <summary>Whether a question is answered yes. Tests that care set it explicitly.</summary>
+    public bool AnswerYes { get; set; } = true;
+
+    public void Ask(string question, Action confirmed)
+    {
+        Actions.Add($"ask:{question}");
+
+        if (AnswerYes)
+        {
+            confirmed();
+        }
+    }
+
     public Fjord.Core.Navigation.MarkFile Marks { get; } = new();
 
     public bool ToggleFrameStats()

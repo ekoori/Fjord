@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -103,7 +104,25 @@ public sealed class MainWindow : Window, IMessageSink
 
         var platform = Fjord.Platform.PlatformServices.Create();
         _operations = new OperationHost(
-            Fjord.Platform.TrashServices.Create(), logging?.CreateLogger<OperationHost>());
+            Fjord.Platform.TrashServices.Create(), logging?.CreateLogger<OperationHost>())
+        {
+            // Read at the moment of asking rather than captured, so :set takes effect
+            // without a restart like every other setting.
+            // _input is assigned further down this constructor and this closure only runs
+            // on a key press, long after.
+            Confirmation = (question, confirmed) =>
+            {
+                if (_config.Behaviour.ConfirmTrash)
+                {
+                    _input!.Ask(question, confirmed);
+                }
+                else
+                {
+                    confirmed();
+                }
+            },
+            ClipboardWriter = CopyToClipboardAsync,
+        };
         _taskPanel = new TaskPanel(_theme);
         _help = new HelpOverlay(_theme);
 
@@ -377,6 +396,38 @@ public sealed class MainWindow : Window, IMessageSink
     /// A failure here must not stop the app starting with an empty window: a corrupt or
     /// stale session is annoying, an app that will not open is not usable at all.
     /// </remarks>
+    /// <summary>
+    /// Puts text on the system clipboard.
+    /// </summary>
+    /// <remarks>
+    /// The clipboard hangs off the TopLevel rather than the application, which is why this
+    /// lives here and reaches the command layer as a delegate: Fjord.Commands has no window
+    /// and should not learn about one for this.
+    /// </remarks>
+    private async Task CopyToClipboardAsync(string text)
+    {
+        var sink = (IMessageSink)this;
+
+        if (Clipboard is not { } clipboard)
+        {
+            sink.Error("No clipboard available.");
+            return;
+        }
+
+        try
+        {
+            await clipboard.SetTextAsync(text);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+                                       or PlatformNotSupportedException
+                                       or System.Runtime.InteropServices.COMException)
+        {
+            // Another application can hold the clipboard open; on Windows that surfaces
+            // here rather than as a failure instead of a wait.
+            sink.Error($"Could not copy: {ex.Message}");
+        }
+    }
+
     /// <summary>Setting names for <c>:set</c>, each showing what the file says now.</summary>
     private IReadOnlyList<CompletionItem> SettingCompletions() =>
         [.. _configService.Settings.Select(s => new CompletionItem(

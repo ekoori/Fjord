@@ -21,6 +21,8 @@ public sealed class FjordConfig
 
     public LoggingConfig Logging { get; set; } = new();
 
+    public BehaviourConfig Behaviour { get; set; } = new();
+
     /// <summary>
     /// Key bindings, as <c>mode -&gt; keys -&gt; command</c>.
     /// </summary>
@@ -88,6 +90,13 @@ public sealed class ColorsConfig
     public string Broken { get; set; } = "#E07B7B";
 
     public string Muted { get; set; } = "#7E8692";
+}
+
+/// <summary>How Fjord acts, as opposed to how it looks.</summary>
+public sealed class BehaviourConfig
+{
+    /// <summary>Whether trashing asks first.</summary>
+    public bool ConfirmTrash { get; set; } = true;
 }
 
 /// <summary>

@@ -50,6 +50,16 @@ public interface IModeHost
     /// <summary>Directories remembered with <c>m</c>.</summary>
     Navigation.MarkFile Marks { get; }
 
+    /// <summary>
+    /// Puts a yes/no question in the status bar and runs the action if the answer is yes.
+    /// </summary>
+    /// <remarks>
+    /// Answered with y or Enter; anything else declines. A modal dialog would be the
+    /// obvious alternative and the wrong one: it moves focus, it needs the mouse to be
+    /// comfortable, and it stops the next keystroke being part of the same sentence.
+    /// </remarks>
+    void Ask(string question, Action confirmed);
+
     /// <summary>Turns the render-time overlay on or off. Returns the new state.</summary>
     bool ToggleFrameStats();
 

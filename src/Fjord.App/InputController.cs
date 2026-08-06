@@ -30,6 +30,9 @@ public sealed class InputController : IModeHost
     // the time, which is what makes an ordinary key an ordinary key.
     private NameTarget? _awaiting;
 
+    // What a yes answer would do, while a question is on screen.
+    private Action? _pendingAnswer;
+
     public InputController(
         ModeManager modes,
         KeyModeRegistry modeRegistry,
@@ -66,6 +69,11 @@ public sealed class InputController : IModeHost
         if (_awaiting is { } target)
         {
             return TakeName(target, e);
+        }
+
+        if (_pendingAnswer is not null)
+        {
+            return Answer(e);
         }
 
         if (AvaloniaKeys.Translate(e) is not { } key)
@@ -124,6 +132,7 @@ public sealed class InputController : IModeHost
     public void LeaveMode(IPane pane)
     {
         _awaiting = null;
+        _pendingAnswer = null;
         LeaveVisual(pane);
         _modes.Reset();
     }
@@ -179,6 +188,53 @@ public sealed class InputController : IModeHost
     {
         _awaiting = target;
         _modes.EnterMode(KeyMode.Register);
+    }
+
+    /// <summary>
+    /// Puts a question in the status bar and waits for one keystroke.
+    /// </summary>
+    /// <remarks>
+    /// A second question replaces the first rather than queueing behind it. Two prompts
+    /// deep is a state nobody can reason about from a single status line.
+    /// </remarks>
+    public void Ask(string question, Action confirmed)
+    {
+        ArgumentNullException.ThrowIfNull(confirmed);
+
+        _pendingAnswer = confirmed;
+        _modes.EnterMode(KeyMode.YesNo);
+        _messages.Info($"{question} [y/N]");
+        Handled?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Resolves an outstanding question.
+    /// </summary>
+    /// <remarks>
+    /// Only y and Enter agree. Everything else declines, including keys that would
+    /// otherwise be bindings — a question on screen owns the keyboard until it is answered,
+    /// or a mistyped j would leave one hanging with no sign of it.
+    /// </remarks>
+    private bool Answer(KeyEventArgs e)
+    {
+        var answer = _pendingAnswer!;
+        _pendingAnswer = null;
+        _modes.EnterMode(KeyMode.Normal);
+
+        var key = AvaloniaKeys.Translate(e);
+        var yes = key is { Key: Core.Keys.Key.Y or Core.Keys.Key.Return or Core.Keys.Key.Enter };
+
+        if (yes)
+        {
+            answer();
+        }
+        else
+        {
+            _messages.Info("Cancelled.");
+        }
+
+        Handled?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     /// <summary>Directories remembered by name with <c>:mark-set</c>.</summary>

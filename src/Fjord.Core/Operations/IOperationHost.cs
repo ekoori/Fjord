@@ -32,6 +32,23 @@ public interface IOperationHost
 
     /// <summary>Every register, named and unnamed.</summary>
     Registers.RegisterFile Registers { get; }
+
+    /// <summary>
+    /// Asks the user before doing something destructive, then does it.
+    /// </summary>
+    /// <remarks>
+    /// The command always asks; the host decides whether that means a prompt. That is what
+    /// lets the confirmation be a setting without every command having to read one, and it
+    /// keeps the decision in the layer that owns the keyboard.
+    /// </remarks>
+    void Confirm(string question, Action confirmed);
+
+    /// <summary>Puts text on the system clipboard, for other applications to paste.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="Clipboard"/>, which holds paths Fjord itself will act on.
+    /// This one is what YY fills, and nothing in Fjord reads it back.
+    /// </remarks>
+    Task SetClipboardTextAsync(string text);
 }
 
 /// <summary>

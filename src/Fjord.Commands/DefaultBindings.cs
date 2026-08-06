@@ -114,10 +114,11 @@ public static class DefaultBindings
                 ["d"] = "trash",
                 ["V"] = "select-range",
 
-                // Files. dd/yy are the vim doubling convention: an operator repeated
-                // acts on the current line.
+                // Files. dd, yy and xx are the vim doubling convention: an operator
+                // repeated acts on the entry under the cursor, so no motion is needed.
                 ["p"] = "paste",
                 ["x"] = "cut-paths",
+                ["Y"] = "yank-text",
                 ["D"] = "trash-selection",
                 ["u"] = "undo",
                 ["<Ctrl+r>"] = "redo",
@@ -138,6 +139,7 @@ public static class DefaultBindings
                 ["y"] = "yank-paths",
                 ["d"] = "trash",
                 ["x"] = "cut-paths",
+                ["Y"] = "yank-text",
                 ["\""] = "register-select",
                 ["S"] = "scrap-add",
                 ["o"] = "visual-swap",

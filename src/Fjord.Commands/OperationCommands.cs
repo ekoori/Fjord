@@ -82,6 +82,33 @@ public sealed class OperationCommands
         }
     }
 
+    /// <remarks>
+    /// The system clipboard, not a register: this is for pasting a path into a terminal, a
+    /// chat message or a dialog box, which is a different job from marking files for Fjord
+    /// itself to copy. Hence YY beside yy rather than a flag on it.
+    /// </remarks>
+    [Command("yank-text", Aliases = ["yank-paths-as-text"], Group = "Files", IsOperator = true,
+        Description = "Copy the full paths a motion covers to the system clipboard as text")]
+    public async Task YankText(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Range)] EntryRange range,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        // The Space selection wins when there is one, because copying a path as text is
+        // something you do to a set you have picked out rather than to a span.
+        var paths = pane.Selection.Count > 0 ? SelectedOrCursor(pane) : PathsIn(pane, range);
+
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        await _host.SetClipboardTextAsync(string.Join(Environment.NewLine, paths)).ConfigureAwait(true);
+        messages.Info($"Copied {Count(paths.Count)} to the clipboard as text.");
+    }
+
     [Command("registers", Aliases = ["reg"], Group = "Files",
         Description = "List what each register is holding")]
     public void Registers(
@@ -112,39 +139,58 @@ public sealed class OperationCommands
 
     // ---- Destructive
 
+    /// <remarks>
+    /// The operator form, so it takes a motion: <c>d3j</c> for four rows, <c>dd</c> for the
+    /// one under the cursor. <c>:trash-selection</c> is the other half — it acts on what
+    /// Space selected, which a motion has no way to describe because that selection can
+    /// have holes in it.
+    /// </remarks>
     [Command("trash", Group = "Files", IsOperator = true,
-        Description = "Move the entries a motion covers to the trash")]
+        Description = "Move the entries a motion covers to the trash (dd for this one)")]
     public void Trash(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Range)] EntryRange range,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        var paths = PathsIn(pane, range);
-
-        if (paths.Count == 0)
-        {
-            return;
-        }
-
-        _host.Enqueue(_factory.Trash(paths));
-        messages.Info($"Moving {Count(paths.Count)} to the trash.");
+        TrashPaths(PathsIn(pane, range), messages);
     }
 
+    /// <remarks>
+    /// What <c>D</c> is bound to, and the one to reach for after selecting with Space. Falls
+    /// back to the entry under the cursor so the key always does something.
+    /// </remarks>
     [Command("trash-selection", Group = "Files",
-        Description = "Move the selected entries, or the one under the cursor, to the trash")]
+        Description = "Move the Space-selected entries, or the one under the cursor, to the trash")]
     public void TrashSelection(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        var paths = SelectedOrCursor(pane);
+        TrashPaths(SelectedOrCursor(pane), messages);
+    }
 
+    /// <summary>
+    /// Confirms, then queues the trash operation.
+    /// </summary>
+    /// <remarks>
+    /// Trashing is undoable, so the prompt is not protecting the data — it is protecting
+    /// against the keystroke. <c>d</c> sits next to <c>s</c> and <c>f</c>, and a mistyped
+    /// operator that silently empties a folder into the bin is a bad surprise even when it
+    /// is reversible. The host decides whether the question is actually asked.
+    /// </remarks>
+    private void TrashPaths(List<string> paths, IMessageSink messages)
+    {
         if (paths.Count == 0)
         {
             return;
         }
 
-        _host.Enqueue(_factory.Trash(paths));
-        messages.Info($"Moving {Count(paths.Count)} to the trash.");
+        var what = paths.Count == 1 ? Path.GetFileName(paths[0]) : Count(paths.Count);
+
+        _host.Confirm($"Move {what} to the trash?", () =>
+        {
+            _host.Enqueue(_factory.Trash(paths));
+            messages.Info($"Moving {Count(paths.Count)} to the trash.");
+        });
     }
 
     /// <remarks>
