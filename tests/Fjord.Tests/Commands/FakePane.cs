@@ -106,6 +106,22 @@ public sealed class FakePane : IPane
     /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
     public bool IsVirtual { get; set; }
 
+    /// <summary>What Enter on a row of a virtual index does, when a test sets one.</summary>
+    public Func<string, Task>? VirtualOpen { get; set; }
+
+    public async Task<bool> OpenVirtualAsync(int row)
+    {
+        var view = _snapshot.View;
+
+        if (VirtualOpen is not { } open || row < 0 || row >= view.Count)
+        {
+            return false;
+        }
+
+        await open(view[row].Name);
+        return true;
+    }
+
     public Task<bool> LeaveVirtualAsync()
     {
         if (!IsVirtual)

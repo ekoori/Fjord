@@ -21,7 +21,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
     /// <summary>
     /// Bumped when the schema changes; <see cref="Migrate"/> applies everything newer.
     /// </summary>
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
 
     private readonly SqliteConnection _connection;
 
@@ -178,14 +178,20 @@ public sealed class SqliteStorage : IStorage, IDisposable
         var items = new List<ScrapItem>();
 
         using var command = Command(
-            "SELECT path, added_utc FROM scrap_items WHERE scrapbook = $name ORDER BY added_utc, path;",
+            """
+            SELECT path, added_utc, comment FROM scrap_items
+            WHERE scrapbook = $name ORDER BY added_utc, path;
+            """,
             null,
             ("$name", name));
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
-            items.Add(new ScrapItem(reader.GetString(0), new DateTime(reader.GetInt64(1), DateTimeKind.Utc)));
+            items.Add(new ScrapItem(
+                reader.GetString(0),
+                new DateTime(reader.GetInt64(1), DateTimeKind.Utc),
+                reader.IsDBNull(2) ? null : reader.GetString(2)));
         }
 
         return items;
@@ -212,6 +218,30 @@ public sealed class SqliteStorage : IStorage, IDisposable
 
         transaction.Commit();
         return removed;
+    }
+
+    public int CommentOnScrapbook(string scrapbook, IReadOnlyList<string> paths, string? comment)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        using var transaction = _connection.BeginTransaction();
+        var annotated = 0;
+
+        foreach (var path in paths)
+        {
+            annotated += Execute(
+                "UPDATE scrap_items SET comment = $comment WHERE scrapbook = $scrapbook AND path = $path;",
+                transaction,
+                ("$scrapbook", scrapbook),
+                ("$path", path),
+
+                // An empty note is no note, stored as NULL rather than as "", so the
+                // display does not have to tell the two apart.
+                ("$comment", string.IsNullOrWhiteSpace(comment) ? DBNull.Value : comment.Trim()));
+        }
+
+        transaction.Commit();
+        return annotated;
     }
 
     public bool ClearScrapbook(string name) =>
@@ -351,6 +381,13 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 );
                 """,
                 transaction);
+        }
+
+        if (current < 3)
+        {
+            // Added rather than recreated: a user upgrading has scrapbooks worth keeping,
+            // and ALTER TABLE ADD COLUMN is the one schema change SQLite does cheaply.
+            Execute("ALTER TABLE scrap_items ADD COLUMN comment TEXT;", transaction);
         }
 
         // Interpolated because PRAGMA does not accept a parameter; the value is a private

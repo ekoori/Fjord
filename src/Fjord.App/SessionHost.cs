@@ -61,11 +61,31 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
     /// rooted, so <c>PathAt</c> and <c>enter</c> resolve correctly against the synthetic
     /// directory label without either knowing this is a scrapbook.
     /// </remarks>
-    public Task OpenScrapbookAsync(string name, IReadOnlyList<string> paths)
+    public Task OpenScrapbookAsync(
+        string name,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        return _workspace.ActivePane.ShowVirtualAsync($"scrapbook:{name}", paths);
+        return _workspace.ActivePane.ShowVirtualAsync($"scrapbook:{name}", paths, notes);
+    }
+
+    /// <summary>
+    /// Shows the scrapbooks as a listing whose rows are names rather than paths.
+    /// </summary>
+    /// <remarks>
+    /// Enter on a row is handed back to the command that built the listing, because the
+    /// name of a scrapbook is not a path and nothing else could know what opening it means.
+    /// </remarks>
+    public Task OpenScrapbookIndexAsync(
+        IReadOnlyList<string> names,
+        IReadOnlyDictionary<string, string> sizes,
+        Func<string, Task> open)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+
+        return _workspace.ActivePane.ShowVirtualAsync("scrapbooks", names, sizes, open);
     }
 
     /// <summary>Builds an entry for a path that may no longer exist.</summary>

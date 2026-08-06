@@ -145,6 +145,11 @@ public static class DefaultBindings
                 ["o"] = "visual-swap",
                 ["v"] = "mode-leave",
                 ["<Escape>"] = "mode-leave",
+
+                // The command line has to be reachable from here, or the only way to run
+                // anything against a visual range is to bind a key to it first.
+                [":"] = "command-mode",
+                ["<Space>"] = "select-toggle",
             },
 
             ["operator-pending"] = new Dictionary<string, string>(StringComparer.Ordinal)

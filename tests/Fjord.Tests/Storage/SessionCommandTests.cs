@@ -25,9 +25,32 @@ internal sealed class FakeSessionHost : ISessionHost, IScrapbookHost
         return Task.CompletedTask;
     }
 
-    public Task OpenScrapbookAsync(string name, IReadOnlyList<string> paths)
+    public Task OpenScrapbookAsync(
+        string name,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes = null)
     {
         Opened = (name, paths);
+        Notes = notes;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Notes the last opened scrapbook carried, keyed by path.</summary>
+    public IReadOnlyDictionary<string, string>? Notes { get; private set; }
+
+    /// <summary>The scrapbook names the last index listed, and what opening one does.</summary>
+    public (IReadOnlyList<string> Names, IReadOnlyDictionary<string, string> Sizes, Func<string, Task> Open)? Index
+    {
+        get;
+        private set;
+    }
+
+    public Task OpenScrapbookIndexAsync(
+        IReadOnlyList<string> names,
+        IReadOnlyDictionary<string, string> sizes,
+        Func<string, Task> open)
+    {
+        Index = (names, sizes, open);
         return Task.CompletedTask;
     }
 }
@@ -284,15 +307,91 @@ public class ScrapbookCommandTests
     }
 
     [Fact]
-    public async Task ListingShowsScrapbooksAndSizes()
+    public async Task ListingOpensTheScrapbooksAsAListing()
     {
-        var (parser, storage, _) = Setup();
+        // A line of text was something you read a name from and typed back. A listing is
+        // something you pick from, which is what a list of collections is for.
+        var (parser, storage, host) = Setup();
         storage.AddToScrapbook("photos", ["/a", "/b"]);
+        storage.AddToScrapbook("todo", ["/c"]);
+
+        await Run(parser, "scrap-list", Pane(), new RecordingMessageSink());
+
+        Assert.NotNull(host.Index);
+        Assert.Equal(["photos", "todo"], host.Index!.Value.Names);
+        Assert.Equal("2 items", host.Index.Value.Sizes["photos"]);
+        Assert.Equal("1 item", host.Index.Value.Sizes["todo"]);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task EnterOnAScrapbookRowOpensThatScrapbook()
+    {
+        // The half that makes it a listing rather than a picture of one.
+        var (parser, storage, host) = Setup();
+        storage.AddToScrapbook("photos", ["/a", "/b"]);
+
+        await Run(parser, "scrap-list", Pane(), new RecordingMessageSink());
+        await host.Index!.Value.Open("photos");
+
+        Assert.Equal("photos", host.Opened?.Name);
+        Assert.Equal(["/a", "/b"], host.Opened?.Paths);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task NoScrapbooksSaysSoRatherThanOpeningAnEmptyListing()
+    {
+        var (parser, storage, host) = Setup();
         var messages = new RecordingMessageSink();
 
         await Run(parser, "scrap-list", Pane(), messages);
 
-        Assert.Contains("photos (2)", messages.Last!, StringComparison.Ordinal);
+        Assert.Null(host.Index);
+        Assert.Contains("No scrapbooks", messages.Last!, StringComparison.Ordinal);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task ANoteIsStoredAgainstTheEntryAndTravelsWithIt()
+    {
+        var (parser, storage, host) = Setup();
+        var pane = Pane();
+        storage.AddToScrapbook("default", [pane.PathAt(0)!]);
+
+        await Run(parser, "scrap-note keep for the report", pane, new RecordingMessageSink());
+        await Run(parser, "scrap-open", pane, new RecordingMessageSink());
+
+        Assert.Equal("keep for the report", host.Notes?[pane.PathAt(0)!]);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task AnEmptyNoteClearsIt()
+    {
+        var (parser, storage, host) = Setup();
+        var pane = Pane();
+        storage.AddToScrapbook("default", [pane.PathAt(0)!]);
+
+        await Run(parser, "scrap-note something", pane, new RecordingMessageSink());
+        await Run(parser, "scrap-note", pane, new RecordingMessageSink());
+        await Run(parser, "scrap-open", pane, new RecordingMessageSink());
+
+        Assert.Empty(host.Notes!);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task NotingSomethingThatIsNotCollectedSaysSo()
+    {
+        // Silence here would look exactly like success, and the note would be gone.
+        var (parser, storage, _) = Setup();
+        var messages = new RecordingMessageSink();
+
+        await Run(parser, "scrap-note never collected", Pane(), messages);
+
+        Assert.Contains("is in", messages.Last!, StringComparison.Ordinal);
+        Assert.Equal(MessageLevel.Error, messages.Messages[^1].Level);
         storage.Dispose();
     }
 }

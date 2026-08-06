@@ -39,7 +39,7 @@ public sealed class ScrapbookCommands
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
         string scrapbook = DefaultScrapbook)
     {
-        var paths = SelectedOrCursor(pane);
+        var paths = PaneTargets.Of(pane);
 
         if (paths.Count == 0)
         {
@@ -89,7 +89,51 @@ public sealed class ScrapbookCommands
             return;
         }
 
-        await _host.OpenScrapbookAsync(name, items.Select(i => i.Path).ToList()).ConfigureAwait(true);
+        await _host.OpenScrapbookAsync(
+            name,
+            items.Select(i => i.Path).ToList(),
+            items.Where(i => !string.IsNullOrEmpty(i.Comment))
+                 .ToDictionary(i => i.Path, i => i.Comment!, StringComparer.Ordinal))
+            .ConfigureAwait(true);
+    }
+
+    /// <remarks>
+    /// A scrapbook outlives the reason for collecting something. Forty paths with no note
+    /// against them is a list you have to re-derive, so the note is worth a command of its
+    /// own rather than living in the name.
+    /// </remarks>
+    [Command("scrap-note", Aliases = ["note"], Group = "Scrapbook", MaxSplit = 0,
+        Description = "Note why the selection is in a scrapbook. An empty note clears it.")]
+    public void ScrapNote(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+
+        // The note is free text and takes the rest of the line, so the scrapbook has to be
+        // a flag — as a second positional it would eat every word after the first.
+        [CommandArgument(Flag = 'b')] string book = DefaultScrapbook,
+        string comment = "")
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var paths = PaneTargets.Of(pane);
+
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var name = Named(book);
+        var annotated = _storage.CommentOnScrapbook(name, paths, comment);
+
+        if (annotated == 0)
+        {
+            messages.Error($"Nothing under the cursor is in '{name}'.");
+            return;
+        }
+
+        messages.Info(comment.Length == 0
+            ? $"Cleared the note on {Count(annotated)}."
+            : $"Noted {Count(annotated)} in '{name}'.");
     }
 
     [Command("scrap-remove", Group = "Scrapbook", MaxSplit = 0,
@@ -99,7 +143,7 @@ public sealed class ScrapbookCommands
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
         string scrapbook = DefaultScrapbook)
     {
-        var paths = SelectedOrCursor(pane);
+        var paths = PaneTargets.Of(pane);
 
         if (paths.Count == 0)
         {
@@ -122,31 +166,32 @@ public sealed class ScrapbookCommands
             : $"Scrapbook '{name}' was already empty.");
     }
 
-    [Command("scrap-list", Group = "Scrapbook", Description = "List scrapbooks and their sizes")]
-    public void ScrapList([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    /// <remarks>
+    /// A listing rather than a line of text, because a list of scrapbooks is something you
+    /// pick from: Enter on a row opens it, so the two commands compose into browsing rather
+    /// than into reading a name and typing it back.
+    /// </remarks>
+    [Command("scrap-list", Aliases = ["scraps"], Group = "Scrapbook",
+        Description = "Show the scrapbooks as a list you can open")]
+    public async Task ScrapList([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        ArgumentNullException.ThrowIfNull(messages);
+
         var names = _storage.ScrapbookNames();
 
-        messages.Info(names.Count == 0
-            ? "No scrapbooks."
-            : string.Join("  ", names.Select(n => $"{n} ({_storage.Scrapbook(n).Count})")));
-    }
-
-    /// <summary>
-    /// The committed selection, or the cursor row when nothing is selected.
-    /// </summary>
-    /// <remarks>
-    /// The same rule the file operations use, so <c>:scrap-add</c> means what a user
-    /// expects whether or not they have selected anything.
-    /// </remarks>
-    private static List<string> SelectedOrCursor(IPane pane)
-    {
-        if (pane.Selection.Count > 0)
+        if (names.Count == 0)
         {
-            return pane.Selection.Indices().Select(pane.PathAt).Where(p => p is not null).ToList()!;
+            messages.Info("No scrapbooks. Press S to collect something.");
+            return;
         }
 
-        return pane.PathAt(pane.CursorIndex) is { } path ? [path] : [];
+        var sizes = names.ToDictionary(
+            n => n,
+            n => $"{Count(_storage.Scrapbook(n).Count)}",
+            StringComparer.Ordinal);
+
+        await _host.OpenScrapbookIndexAsync(names, sizes, name => ScrapOpen(messages, name))
+            .ConfigureAwait(true);
     }
 
     private static string Named(string name)
@@ -161,5 +206,19 @@ public sealed class ScrapbookCommands
 /// <summary>Showing a scrapbook's contents as a listing.</summary>
 public interface IScrapbookHost
 {
-    Task OpenScrapbookAsync(string name, IReadOnlyList<string> paths);
+    /// <param name="notes">Path to note, for the column beside each entry.</param>
+    Task OpenScrapbookAsync(
+        string name,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes = null);
+
+    /// <summary>
+    /// Shows the scrapbooks themselves as a listing.
+    /// </summary>
+    /// <param name="sizes">How many items each holds, for the column beside the name.</param>
+    /// <param name="open">What Enter on a row does.</param>
+    Task OpenScrapbookIndexAsync(
+        IReadOnlyList<string> names,
+        IReadOnlyDictionary<string, string> sizes,
+        Func<string, Task> open);
 }

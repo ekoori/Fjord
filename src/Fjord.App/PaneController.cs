@@ -31,6 +31,9 @@ public sealed class PaneController : IPane
     // also how the pane knows it is showing one.
     private (string Directory, string? CursorName)? _leftBehind;
 
+    // What opening a row means, when the rows are names rather than paths.
+    private Func<string, Task>? _openVirtual;
+
     // State held while this pane is not the one on screen. One FileListView serves every
     // tab, so an inactive pane cannot leave its cursor and selection there; it keeps them
     // here and hands them back on activation. That is what makes switching tabs a pointer
@@ -227,6 +230,7 @@ public sealed class PaneController : IPane
         // Navigating anywhere real ends the virtual listing, so entering a scrapbook item's
         // folder does not leave the pane thinking it is still in the scrapbook.
         _leftBehind = null;
+        _openVirtual = null;
 
         if (recordHistory)
         {
@@ -282,7 +286,19 @@ public sealed class PaneController : IPane
     /// and overwrite this.
     /// </para>
     /// </remarks>
-    public async Task ShowVirtualAsync(string label, IReadOnlyList<string> paths)
+    /// <param name="annotations">
+    /// A note per entry, shown in its own column. Keyed by the entry name, which for a
+    /// virtual listing is the whole path.
+    /// </param>
+    /// <param name="open">
+    /// What Enter on a row means, when the rows are names rather than paths. Null leaves
+    /// them behaving like ordinary entries.
+    /// </param>
+    public async Task ShowVirtualAsync(
+        string label,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? annotations = null,
+        Func<string, Task>? open = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
@@ -300,11 +316,16 @@ public sealed class PaneController : IPane
             previous.Dispose();
         }
 
-        var snapshot = new DirectorySnapshot(label, Sort, Filter with { ShowHidden = true });
+        var snapshot = new DirectorySnapshot(label, Sort, Filter with { ShowHidden = true })
+        {
+            Annotations = annotations,
+        };
+
         snapshot.Append(paths.Select(SessionHost.DescribePath).ToArray());
         snapshot.Complete();
 
         Snapshot = snapshot;
+        _openVirtual = open;
 
         if (_isActive)
         {
@@ -316,6 +337,24 @@ public sealed class PaneController : IPane
     }
 
     public bool IsVirtual => _leftBehind is not null;
+
+    public Task<bool> OpenVirtualAsync(int row)
+    {
+        var view = Snapshot?.View ?? default;
+
+        if (_openVirtual is not { } open || row < 0 || row >= view.Count)
+        {
+            return Task.FromResult(false);
+        }
+
+        return OpenAndReport(open, view[row].Name);
+    }
+
+    private static async Task<bool> OpenAndReport(Func<string, Task> open, string name)
+    {
+        await open(name).ConfigureAwait(true);
+        return true;
+    }
 
     /// <summary>
     /// Returns to the directory a virtual listing was opened from.

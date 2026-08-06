@@ -495,8 +495,15 @@ public sealed class FileListView : Control, ILogicalScrollable
         // Below a certain width the columns would overlap the name; drop them instead.
         if (sizeX > theme.LeftPadding * 4)
         {
-            context.DrawText(visual.Size, new Point(sizeX, textY));
-            context.DrawText(visual.Modified, new Point(modifiedX, textY));
+            if (visual.Note is { } note)
+            {
+                context.DrawText(note, new Point(sizeX, textY));
+            }
+            else
+            {
+                context.DrawText(visual.Size, new Point(sizeX, textY));
+                context.DrawText(visual.Modified, new Point(modifiedX, textY));
+            }
         }
 
         _ = rowHeight;
@@ -531,12 +538,17 @@ public sealed class FileListView : Control, ILogicalScrollable
             - theme.ModifiedColumnWidth - theme.SizeColumnWidth
             - (theme.ColumnGap * 2) - (theme.LeftPadding * 2) - theme.CursorBarWidth);
 
+        var noteWidth = theme.SizeColumnWidth + theme.ColumnGap + theme.ModifiedColumnWidth;
+
         var built = new RowVisual(
             row,
             _generation,
             Text(entry.Name, nameBrush, nameWidth, theme, TextAlignment.Left),
             Text(SizeFormatter.Format(entry.Size), theme.MutedText, theme.SizeColumnWidth, theme, TextAlignment.Right),
-            Text(FormatModified(in entry), theme.MutedText, theme.ModifiedColumnWidth, theme, TextAlignment.Right));
+            Text(FormatModified(in entry), theme.MutedText, theme.ModifiedColumnWidth, theme, TextAlignment.Right),
+            Annotation(entry.Name) is { } note
+                ? Text(note, theme.MutedText, noteWidth, theme, TextAlignment.Left)
+                : null);
 
         _visuals[slot] = built;
         return built;
@@ -601,7 +613,22 @@ public sealed class FileListView : Control, ILogicalScrollable
 
     private void InvalidateRowCache() => _generation++;
 
+    /// <summary>The note against an entry, or null when this listing has none.</summary>
+    private string? Annotation(string name) =>
+        _snapshot?.Annotations is { } notes && notes.TryGetValue(name, out var note) && note.Length > 0
+            ? note
+            : null;
+
     /// <summary>Cached text for one row. A class so a slot can be null when never built.</summary>
+    /// <param name="Note">
+    /// The entry's annotation, or null when the listing has none. When set it replaces the
+    /// size and modified columns rather than squeezing in beside them.
+    /// </param>
     private sealed record RowVisual(
-        int Row, int Generation, FormattedText Name, FormattedText Size, FormattedText Modified);
+        int Row,
+        int Generation,
+        FormattedText Name,
+        FormattedText Size,
+        FormattedText Modified,
+        FormattedText? Note);
 }

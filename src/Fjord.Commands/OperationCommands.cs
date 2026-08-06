@@ -98,7 +98,7 @@ public sealed class OperationCommands
 
         // The Space selection wins when there is one, because copying a path as text is
         // something you do to a set you have picked out rather than to a span.
-        var paths = pane.Selection.Count > 0 ? SelectedOrCursor(pane) : PathsIn(pane, range);
+        var paths = pane.Selection.Count > 0 ? PaneTargets.Of(pane) : PathsIn(pane, range);
 
         if (paths.Count == 0)
         {
@@ -165,7 +165,7 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        TrashPaths(SelectedOrCursor(pane), messages);
+        TrashPaths(PaneTargets.Of(pane), messages);
     }
 
     /// <summary>
@@ -204,7 +204,7 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        var paths = SelectedOrCursor(pane);
+        var paths = PaneTargets.Of(pane);
 
         if (paths.Count == 0)
         {
@@ -250,7 +250,7 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        var paths = SelectedOrCursor(pane);
+        var paths = PaneTargets.Of(pane);
 
         if (paths.Count == 0)
         {
@@ -301,15 +301,6 @@ public sealed class OperationCommands
     /// The rule every file manager uses, and the one that makes a bare <c>:trash</c> do
     /// what the user means whether or not they have selected anything.
     /// </remarks>
-    private static List<string> SelectedOrCursor(IPane pane)
-    {
-        if (pane.Selection.Count > 0)
-        {
-            return pane.Selection.Indices().Select(pane.PathAt).Where(p => p is not null).ToList()!;
-        }
-
-        return pane.PathAt(pane.CursorIndex) is { } path ? [path] : [];
-    }
 
     private static string Count(int n) => $"{n} item{(n == 1 ? "" : "s")}";
 }

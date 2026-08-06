@@ -15,7 +15,11 @@ public sealed record SavedSession(string Name, IReadOnlyList<SavedTab> Tabs, int
 }
 
 /// <summary>An entry collected into a scrapbook.</summary>
-public sealed record ScrapItem(string Path, DateTime AddedUtc);
+/// <param name="Comment">
+/// Why it is in there. A scrapbook outlives the reason for collecting something, and a
+/// list of forty paths with no note against them is a list you have to re-derive.
+/// </param>
+public sealed record ScrapItem(string Path, DateTime AddedUtc, string? Comment = null);
 
 /// <summary>
 /// Durable state: sessions, scrapbooks, recent locations.
@@ -54,6 +58,12 @@ public interface IStorage
     IReadOnlyList<string> ScrapbookNames();
 
     int RemoveFromScrapbook(string scrapbook, IReadOnlyList<string> paths);
+
+    /// <summary>
+    /// Notes why these paths are in the scrapbook. An empty comment clears the note.
+    /// </summary>
+    /// <returns>How many items were annotated.</returns>
+    int CommentOnScrapbook(string scrapbook, IReadOnlyList<string> paths, string? comment);
 
     bool ClearScrapbook(string name);
 

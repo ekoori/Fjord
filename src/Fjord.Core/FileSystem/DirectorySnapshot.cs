@@ -100,6 +100,16 @@ public sealed class DirectorySnapshot
 
     public string Directory { get; }
 
+    /// <summary>
+    /// A note per entry, keyed by name, shown in its own column.
+    /// </summary>
+    /// <remarks>
+    /// A side map rather than a field on <see cref="FileEntry"/>, which is deliberately 32
+    /// bytes: a 100,000-entry directory would pay for a column it never uses. Null is the
+    /// normal case and costs a reference.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string>? Annotations { get; init; }
+
     public SortSpec Sort => _sort;
 
     public FilterSpec Filter => _filter;

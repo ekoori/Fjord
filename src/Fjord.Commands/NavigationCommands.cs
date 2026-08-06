@@ -110,6 +110,13 @@ public sealed class NavigationCommands
             return Task.CompletedTask;
         }
 
+        // A listing whose rows are names rather than paths — the list of scrapbooks — knows
+        // what opening one of its rows means, and it is not "navigate to this directory".
+        if (pane.IsVirtual)
+        {
+            return EnterVirtualAsync(pane, messages);
+        }
+
         ref readonly var entry = ref view[pane.CursorIndex];
         var path = Path.Combine(pane.Directory, entry.Name);
 
@@ -127,6 +134,34 @@ public sealed class NavigationCommands
         // Enter on a file hands it to the OS, which is what every file manager does and
         // what makes the key mean one thing rather than two.
         return OpenFileAsync(path, messages);
+    }
+
+    /// <summary>Tries the listing's own idea of opening a row, then falls back to a path.</summary>
+    private async Task EnterVirtualAsync(IPane pane, IMessageSink messages)
+    {
+        if (await pane.OpenVirtualAsync(pane.CursorIndex).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        // An ordinary virtual listing — a scrapbook — holds real paths as its names, so
+        // opening a row means the same thing it does anywhere else.
+        var view = pane.Snapshot?.View ?? default;
+        if (view.Count == 0 || pane.CursorIndex >= view.Count)
+        {
+            return;
+        }
+
+        var path = Path.Combine(pane.Directory, view[pane.CursorIndex].Name);
+
+        if (System.IO.Directory.Exists(path))
+        {
+            await pane.NavigateAsync(path).ConfigureAwait(true);
+        }
+        else if (_platform is not null)
+        {
+            await OpenFileAsync(path, messages).ConfigureAwait(true);
+        }
     }
 
     private async Task OpenFileAsync(string path, IMessageSink messages)

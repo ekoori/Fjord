@@ -67,6 +67,17 @@ public interface IPane
     /// <returns>False when there was nothing to leave.</returns>
     Task<bool> LeaveVirtualAsync();
 
+    /// <summary>
+    /// Opens the row of a virtual listing whose entries are not paths.
+    /// </summary>
+    /// <returns>False when this listing's rows are ordinary paths.</returns>
+    /// <remarks>
+    /// What makes the list of scrapbooks navigable: its rows are names, so Enter has to ask
+    /// the thing that built the listing what opening one means rather than treating the
+    /// name as a directory.
+    /// </remarks>
+    Task<bool> OpenVirtualAsync(int row);
+
     void MoveCursor(int delta);
 
     void MoveCursorTo(int row);
