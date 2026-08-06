@@ -27,7 +27,11 @@ public interface IOperationHost
     string? NextRedoDescription { get; }
 
     /// <summary>Paths waiting to be pasted, and whether pasting should move them.</summary>
+    /// <remarks>The unnamed register. Named ones live in <see cref="Registers"/>.</remarks>
     ClipboardContents Clipboard { get; set; }
+
+    /// <summary>Every register, named and unnamed.</summary>
+    Registers.RegisterFile Registers { get; }
 }
 
 /// <summary>

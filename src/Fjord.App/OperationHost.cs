@@ -68,7 +68,14 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
     /// <summary>Raised after work that may have altered the current directory.</summary>
     public event EventHandler? Settled;
 
-    public ClipboardContents Clipboard { get; set; } = ClipboardContents.Empty;
+    public Fjord.Core.Registers.RegisterFile Registers { get; } = new();
+
+    /// <summary>The unnamed register, which is what a bare yank and a bare paste use.</summary>
+    public ClipboardContents Clipboard
+    {
+        get => Registers.Unnamed;
+        set => Registers.Unnamed = value;
+    }
 
     public string? NextUndoDescription => _undo.NextUndoDescription;
 

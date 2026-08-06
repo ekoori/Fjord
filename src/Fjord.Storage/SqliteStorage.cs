@@ -1,5 +1,6 @@
-using Microsoft.Data.Sqlite;
+using Fjord.Core.Navigation;
 using Fjord.Core.Storage;
+using Microsoft.Data.Sqlite;
 
 namespace Fjord.Storage;
 
@@ -20,7 +21,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
     /// <summary>
     /// Bumped when the schema changes; <see cref="Migrate"/> applies everything newer.
     /// </summary>
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
 
     private readonly SqliteConnection _connection;
 
@@ -233,6 +234,55 @@ public sealed class SqliteStorage : IStorage, IDisposable
             "SELECT directory FROM recents ORDER BY visited_utc DESC LIMIT $limit;",
             ("$limit", Math.Max(1, limit)));
 
+    // ---- Marks
+
+    public void SaveMarks(IReadOnlyDictionary<char, Mark> marks)
+    {
+        ArgumentNullException.ThrowIfNull(marks);
+
+        using var transaction = _connection.BeginTransaction();
+
+        Execute("DELETE FROM marks;", transaction);
+
+        foreach (var (name, mark) in marks)
+        {
+            Execute(
+                """
+                INSERT INTO marks (name, directory, cursor_name)
+                VALUES ($name, $directory, $cursor);
+                """,
+                transaction,
+                ("$name", name.ToString()),
+                ("$directory", mark.Directory),
+                ("$cursor", (object?)mark.CursorName ?? DBNull.Value));
+        }
+
+        transaction.Commit();
+    }
+
+    public IReadOnlyDictionary<char, Mark> LoadMarks()
+    {
+        var marks = new Dictionary<char, Mark>();
+
+        using var command = Command("SELECT name, directory, cursor_name FROM marks;", null);
+        using var reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            var name = reader.GetString(0);
+
+            // A name is one character by construction. Anything else came from a hand-edited
+            // database and is skipped rather than crashing the restore.
+            if (name.Length == 1)
+            {
+                marks[name[0]] = new Mark(
+                    reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2));
+            }
+        }
+
+        return marks;
+    }
+
     /// <summary>
     /// Brings the schema up to <see cref="SchemaVersion"/>.
     /// </summary>
@@ -285,6 +335,19 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 );
 
                 CREATE INDEX idx_recents_visited ON recents(visited_utc DESC);
+                """,
+                transaction);
+        }
+
+        if (current < 2)
+        {
+            Execute(
+                """
+                CREATE TABLE marks (
+                    name        TEXT PRIMARY KEY,
+                    directory   TEXT NOT NULL,
+                    cursor_name TEXT
+                );
                 """,
                 transaction);
         }

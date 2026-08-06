@@ -3,6 +3,7 @@ using Fjord.App.Input;
 using Fjord.Commands;
 using Fjord.Core.Diagnostics;
 using Fjord.Core.Input;
+using Fjord.Core.Navigation;
 using Fjord.Core.Panes;
 
 namespace Fjord.App;
@@ -24,6 +25,10 @@ public sealed class InputController : IModeHost
     private readonly IMessageSink _messages;
     private readonly Func<IPane?> _activePane;
     private readonly Func<IWorkspace?> _workspace;
+
+    // What the next keystroke names, once a command has asked for one. Null the rest of
+    // the time, which is what makes an ordinary key an ordinary key.
+    private NameTarget? _awaiting;
 
     public InputController(
         ModeManager modes,
@@ -58,9 +63,9 @@ public sealed class InputController : IModeHost
 
         // "The next keystroke is data" modes read the raw key rather than matching it
         // against bindings, so they are resolved before the mode manager sees anything.
-        if (_modes.Mode == KeyMode.Register)
+        if (_awaiting is { } target)
         {
-            return TakeRegister(e);
+            return TakeName(target, e, pane);
         }
 
         if (AvaloniaKeys.Translate(e) is not { } key)
@@ -74,14 +79,6 @@ public sealed class InputController : IModeHost
         {
             LeaveVisual(pane);
             _modes.Reset();
-            Handled?.Invoke(this, EventArgs.Empty);
-            return true;
-        }
-
-        // Entering a register name is spelled the same way vim spells it.
-        if (_modes.Mode == KeyMode.Normal && key is { Key: Core.Keys.Key.QuoteDbl })
-        {
-            _modes.EnterMode(KeyMode.Register);
             Handled?.Invoke(this, EventArgs.Empty);
             return true;
         }
@@ -117,6 +114,7 @@ public sealed class InputController : IModeHost
     /// <summary>Returns to normal mode, abandoning any pending operator or register.</summary>
     public void LeaveMode(IPane pane)
     {
+        _awaiting = null;
         LeaveVisual(pane);
         _modes.Reset();
     }
@@ -161,6 +159,22 @@ public sealed class InputController : IModeHost
         Handled?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Arranges for the next keystroke to be read as a name.
+    /// </summary>
+    /// <remarks>
+    /// Called from a command, so <c>"</c>, <c>m</c> and <c>'</c> are ordinary bindings the
+    /// user can move rather than characters wired into the key handler.
+    /// </remarks>
+    public void ReadName(NameTarget target)
+    {
+        _awaiting = target;
+        _modes.EnterMode(target == NameTarget.Register ? KeyMode.Register : KeyMode.Mark);
+    }
+
+    /// <summary>Directories remembered with <c>m</c>.</summary>
+    public MarkFile Marks { get; } = new();
+
     /// <summary>Toggles the render-time overlay. The window supplies the handler.</summary>
     public bool ToggleFrameStats()
     {
@@ -183,18 +197,59 @@ public sealed class InputController : IModeHost
         }
     }
 
-    private bool TakeRegister(KeyEventArgs e)
+    /// <summary>
+    /// Consumes the keystroke a command asked to read as a name.
+    /// </summary>
+    /// <remarks>
+    /// Escape and any non-character key abandon the wait rather than naming something: a
+    /// half-typed <c>m</c> must be cancellable, and binding a mark to Home would be a
+    /// mark nobody could type again.
+    /// </remarks>
+    private bool TakeName(NameTarget target, KeyEventArgs e, IPane? pane)
     {
-        var text = AvaloniaKeys.TextOf(e);
+        _awaiting = null;
+        _modes.EnterMode(KeyMode.Normal);
 
-        if (text is { Length: 1 } && !char.IsControl(text[0]))
+        if (AvaloniaKeys.TextOf(e) is { Length: 1 } text && !char.IsControl(text[0]))
         {
-            _modes.SetRegister(text[0]);
+            Apply(target, text[0], pane);
         }
 
-        _modes.EnterMode(KeyMode.Normal);
         Handled?.Invoke(this, EventArgs.Empty);
         return true;
+    }
+
+    private void Apply(NameTarget target, char name, IPane? pane)
+    {
+        switch (target)
+        {
+            case NameTarget.Register:
+                _modes.SetRegister(name);
+                break;
+
+            case NameTarget.MarkToSet when pane is { Directory.Length: > 0 }:
+                Marks.Set(name, pane.Directory, pane.CursorName);
+                _messages.Info($"Mark {name} set to {pane.Directory}.");
+                break;
+
+            case NameTarget.MarkToVisit when pane is not null:
+                Visit(name, pane);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    private void Visit(char name, IPane pane)
+    {
+        if (Marks.Get(name) is not { } mark)
+        {
+            _messages.Error($"Mark {name} is not set.");
+            return;
+        }
+
+        Observe(pane.NavigateAsync(mark.Directory, mark.CursorName));
     }
 
     private void Run(KeyResult result, IPane? pane)

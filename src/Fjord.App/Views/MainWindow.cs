@@ -367,6 +367,10 @@ public sealed class MainWindow : Window, IMessageSink
     {
         try
         {
+            // Marks before tabs: they are what the restored window navigates by, and they
+            // cost one small query whether or not there is a session to go with them.
+            _input.Marks.Load(_storage.LoadMarks());
+
             if (_storage.LoadSession(Core.Storage.SavedSession.DefaultName) is { Tabs.Count: > 0 } session)
             {
                 await _sessions.RestoreAsync(session);
@@ -388,6 +392,7 @@ public sealed class MainWindow : Window, IMessageSink
         try
         {
             _storage.SaveSession(_sessions.Capture(Core.Storage.SavedSession.DefaultName));
+            _storage.SaveMarks(_input.Marks.All);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException)
         {

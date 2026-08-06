@@ -106,6 +106,27 @@ public class DefaultBindingsTests
     }
 
     [Fact]
+    public void TheKeysThatReadANameAskForTheRightThing()
+    {
+        // ", m and ' are ordinary bindings rather than characters wired into the key
+        // handler, which is what makes them movable. This checks the wiring survived.
+        var host = new FakeModeHost();
+        var registry = new CommandRegistry();
+        registry.Register(new ModeCommands(host));
+        var parser = new CommandParser(registry);
+
+        var bindings = DefaultBindings.All["normal"];
+
+        parser.Execute(bindings["\""], new CommandContext());
+        parser.Execute(bindings["m"], new CommandContext());
+        parser.Execute(bindings["'"], new CommandContext());
+
+        Assert.Equal(
+            ["read-name:Register", "read-name:MarkToSet", "read-name:MarkToVisit"],
+            host.Actions);
+    }
+
+    [Fact]
     public void MotionsDoNotMutateTheSnapshot()
     {
         // OperatorDispatcher resolves a range by running the motion and diffing the

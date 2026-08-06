@@ -64,4 +64,19 @@ public interface IStorage
 
     /// <summary>Most recently visited directories, newest first.</summary>
     IReadOnlyList<string> RecentDirectories(int limit = 50);
+
+    // ---- Marks
+
+    /// <summary>
+    /// Replaces the stored marks with the ones given.
+    /// </summary>
+    /// <remarks>
+    /// The whole set at once rather than one at a time. There are at most a few dozen, and
+    /// writing them together means the file on disk always reflects a state the app was
+    /// actually in — no half-applied clear.
+    /// </remarks>
+    void SaveMarks(IReadOnlyDictionary<char, Navigation.Mark> marks);
+
+    /// <summary>Marks from the last session.</summary>
+    IReadOnlyDictionary<char, Navigation.Mark> LoadMarks();
 }

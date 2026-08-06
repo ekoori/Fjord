@@ -11,7 +11,14 @@ internal sealed class FakeOperationHost : IOperationHost
 {
     public List<string> Enqueued { get; } = [];
 
-    public ClipboardContents Clipboard { get; set; } = ClipboardContents.Empty;
+    public Fjord.Core.Registers.RegisterFile Registers { get; } = new();
+
+    /// <summary>The unnamed register, same as the real host.</summary>
+    public ClipboardContents Clipboard
+    {
+        get => Registers.Unnamed;
+        set => Registers.Unnamed = value;
+    }
 
     public string? NextUndoDescription { get; set; }
 
@@ -75,12 +82,13 @@ public class OperationCommandTests
     private static FakePane Pane() => new("/tmp", "a.txt", "b.txt", "c.txt", "d.txt");
 
     private static CommandContext Context(
-        FakePane pane, IMessageSink? messages = null, EntryRange? range = null) =>
+        FakePane pane, IMessageSink? messages = null, EntryRange? range = null, char register = '"') =>
         new()
         {
             Pane = pane,
             Messages = messages ?? NullMessageSink.Instance,
             Range = range,
+            Register = register,
         };
 
     [Fact]
@@ -141,6 +149,82 @@ public class OperationCommandTests
         host.Clipboard = new ClipboardContents(["/other/a.txt"], Cut: true);
         parser.Execute("paste", Context(Pane()));
         Assert.True(host.Clipboard.IsEmpty);
+    }
+
+    [Fact]
+    public void YankingIntoANamedRegisterKeepsItSeparate()
+    {
+        var (parser, host) = Setup();
+        var pane = Pane();
+
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(0, 0), register: 'a'));
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(1, 3), register: 'b'));
+
+        Assert.Single(host.Registers['a'].Paths);
+        Assert.Equal(3, host.Registers['b'].Paths.Count);
+    }
+
+    [Fact]
+    public void PastingReadsTheRegisterItWasGiven()
+    {
+        var (parser, host) = Setup();
+        host.Registers['a'] = new ClipboardContents(["/other/a.txt"], Cut: false);
+        host.Registers['b'] = new ClipboardContents(["/other/b.txt"], Cut: false);
+
+        parser.Execute("paste", Context(Pane(), register: 'b'));
+
+        Assert.Equal(["copy:b.txt->/tmp"], host.Enqueued);
+    }
+
+    [Fact]
+    public void PastingAnEmptyNamedRegisterNamesItInTheMessage()
+    {
+        // "Nothing to paste" would be actively misleading here: something probably is in
+        // the unnamed register, and the user needs to know it was "q that was empty.
+        var (parser, host) = Setup();
+        var messages = new RecordingMessageSink();
+        host.Clipboard = new ClipboardContents(["/other/a.txt"], Cut: false);
+
+        parser.Execute("paste", Context(Pane(), messages, register: 'q'));
+
+        Assert.Empty(host.Enqueued);
+        Assert.Equal("Register \"q is empty.", messages.Last);
+    }
+
+    [Fact]
+    public void PastingACutFromANamedRegisterConsumesOnlyThatOne()
+    {
+        var (parser, host) = Setup();
+        host.Registers['a'] = new ClipboardContents(["/other/a.txt"], Cut: true);
+        host.Registers['b'] = new ClipboardContents(["/other/b.txt"], Cut: true);
+
+        parser.Execute("paste", Context(Pane(), register: 'a'));
+
+        Assert.True(host.Registers['a'].IsEmpty);
+        Assert.False(host.Registers['b'].IsEmpty);
+    }
+
+    [Fact]
+    public void RegistersListsWhatEachIsHolding()
+    {
+        var (parser, host) = Setup();
+        var messages = new RecordingMessageSink();
+        host.Registers['a'] = new ClipboardContents(["one.txt", "two.txt"], Cut: false);
+
+        parser.Execute("registers", Context(Pane(), messages));
+
+        Assert.Contains("\"a yank 2", messages.Last, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RegistersSaysSoWhenThereIsNothingToShow()
+    {
+        var (parser, _) = Setup();
+        var messages = new RecordingMessageSink();
+
+        parser.Execute("registers", Context(Pane(), messages));
+
+        Assert.Equal("All registers are empty.", messages.Last);
     }
 
     [Fact]

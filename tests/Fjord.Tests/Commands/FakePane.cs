@@ -147,6 +147,10 @@ public sealed class FakeModeHost : IModeHost
 
     public void EnterCommandLine(string initial) => Actions.Add($"command-line:{initial}");
 
+    public void ReadName(NameTarget target) => Actions.Add($"read-name:{target}");
+
+    public Fjord.Core.Navigation.MarkFile Marks { get; } = new();
+
     public bool ToggleFrameStats()
     {
         Actions.Add("toggle-frame-stats");

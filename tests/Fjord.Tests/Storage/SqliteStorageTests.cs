@@ -1,3 +1,4 @@
+using Fjord.Core.Navigation;
 using Fjord.Core.Storage;
 using Fjord.Storage;
 using Fjord.Tests.FileSystem;
@@ -199,7 +200,94 @@ public class SqliteStorageTests : IDisposable
         Assert.Equal("/dir9", _storage.RecentDirectories(3)[0]);
     }
 
+    // ---- Marks
+
+    [Fact]
+    public void MarksRoundTrip()
+    {
+        _storage.SaveMarks(new Dictionary<char, Mark>
+        {
+            ['p'] = new("/home/igor/projects", "fjord"),
+            ['d'] = new("/downloads", null),
+        });
+
+        var marks = _storage.LoadMarks();
+
+        Assert.Equal(2, marks.Count);
+        Assert.Equal("/home/igor/projects", marks['p'].Directory);
+        Assert.Equal("fjord", marks['p'].CursorName);
+        Assert.Null(marks['d'].CursorName);
+    }
+
+    [Fact]
+    public void SavingMarksReplacesTheWholeSet()
+    {
+        // Not a merge. Clearing a mark in the app has to actually clear it on disk, or it
+        // comes back on the next launch.
+        _storage.SaveMarks(new Dictionary<char, Mark> { ['a'] = new("/first", null) });
+        _storage.SaveMarks(new Dictionary<char, Mark> { ['b'] = new("/second", null) });
+
+        var marks = _storage.LoadMarks();
+
+        Assert.False(marks.ContainsKey('a'));
+        Assert.Equal("/second", marks['b'].Directory);
+    }
+
+    [Fact]
+    public void CaseIsSignificantInAMarkName()
+    {
+        _storage.SaveMarks(new Dictionary<char, Mark>
+        {
+            ['a'] = new("/lower", null),
+            ['A'] = new("/upper", null),
+        });
+
+        var marks = _storage.LoadMarks();
+
+        Assert.Equal("/lower", marks['a'].Directory);
+        Assert.Equal("/upper", marks['A'].Directory);
+    }
+
+    [Fact]
+    public void NoMarksIsNotAnError() => Assert.Empty(_storage.LoadMarks());
+
     // ---- Schema
+
+    [Fact]
+    public void ADatabaseFromTheVersionBeforeMarksIsMigrated()
+    {
+        // The migration mechanism's first real use. A user upgrading has a v1 database on
+        // disk, and it must gain the marks table rather than throwing on open.
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "fjord.db");
+
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                CREATE TABLE sessions (name TEXT PRIMARY KEY, active_tab INTEGER NOT NULL,
+                                       saved_utc INTEGER NOT NULL);
+                CREATE TABLE session_tabs (session_name TEXT NOT NULL, position INTEGER NOT NULL,
+                                           directory TEXT NOT NULL, cursor_name TEXT,
+                                           selection TEXT NOT NULL DEFAULT '',
+                                           PRIMARY KEY (session_name, position));
+                CREATE TABLE scrap_items (scrapbook TEXT NOT NULL, path TEXT NOT NULL,
+                                          added_utc INTEGER NOT NULL, PRIMARY KEY (scrapbook, path));
+                CREATE TABLE recents (directory TEXT PRIMARY KEY, visited_utc INTEGER NOT NULL);
+                PRAGMA user_version = 1;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        using var upgraded = new SqliteStorage(path);
+        upgraded.SaveMarks(new Dictionary<char, Mark> { ['a'] = new("/kept", null) });
+
+        Assert.Equal("/kept", upgraded.LoadMarks()['a'].Directory);
+    }
 
     [Fact]
     public void AFileBackedDatabasePersistsAcrossOpens()

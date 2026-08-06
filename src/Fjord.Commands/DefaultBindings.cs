@@ -93,6 +93,13 @@ public static class DefaultBindings
                 ["v"] = "visual-mode",
                 [":"] = "command-mode",
 
+                // Each of these reads the next keystroke as a name rather than a binding.
+                // They are commands rather than characters wired into the key handler, so
+                // they can be moved like anything else.
+                ["\""] = "register-select",
+                ["m"] = "mark-set",
+                ["'"] = "mark-visit",
+
                 // Operators. These wait for a motion; the mode manager does not dispatch
                 // them on sight.
                 ["y"] = "yank-paths",
@@ -123,6 +130,7 @@ public static class DefaultBindings
                 ["y"] = "yank-paths",
                 ["d"] = "trash",
                 ["x"] = "cut-paths",
+                ["\""] = "register-select",
                 ["S"] = "scrap-add",
                 ["o"] = "visual-swap",
                 ["v"] = "mode-leave",

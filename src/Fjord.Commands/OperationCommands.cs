@@ -1,6 +1,7 @@
 using Fjord.Core.Diagnostics;
 using Fjord.Core.Operations;
 using Fjord.Core.Panes;
+using Fjord.Core.Registers;
 using Fjord.Core.Selection;
 
 namespace Fjord.Commands;
@@ -31,11 +32,12 @@ public sealed class OperationCommands
     public void YankPaths(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Range)] EntryRange range,
+        [CommandArgument(Value = CommandValue.Register)] char register,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
         var paths = PathsIn(pane, range);
-        _host.Clipboard = new ClipboardContents(paths, Cut: false);
-        messages.Info($"Yanked {Count(paths.Count)} for copying.");
+        _host.Registers[register] = new ClipboardContents(paths, Cut: false);
+        messages.Info($"Yanked {Count(paths.Count)} for copying{Into(register)}.");
     }
 
     [Command("cut-paths", Aliases = ["cut"], Group = "Files", IsOperator = true,
@@ -43,23 +45,27 @@ public sealed class OperationCommands
     public void CutPaths(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Range)] EntryRange range,
+        [CommandArgument(Value = CommandValue.Register)] char register,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
         var paths = PathsIn(pane, range);
-        _host.Clipboard = new ClipboardContents(paths, Cut: true);
-        messages.Info($"Cut {Count(paths.Count)} for moving.");
+        _host.Registers[register] = new ClipboardContents(paths, Cut: true);
+        messages.Info($"Cut {Count(paths.Count)} for moving{Into(register)}.");
     }
 
-    [Command("paste", Group = "Files", Description = "Copy or move the clipboard here")]
+    [Command("paste", Group = "Files", Description = "Copy or move a register's contents here")]
     public void Paste(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Register)] char register,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
-        var clipboard = _host.Clipboard;
+        var clipboard = _host.Registers[register];
 
         if (clipboard.IsEmpty)
         {
-            messages.Info("Nothing to paste.");
+            messages.Info(register == RegisterFile.UnnamedName
+                ? "Nothing to paste."
+                : $"Register \"{register} is empty.");
             return;
         }
 
@@ -72,9 +78,37 @@ public sealed class OperationCommands
         // what every file manager does with cut and copy.
         if (clipboard.Cut)
         {
-            _host.Clipboard = ClipboardContents.Empty;
+            _host.Registers.Clear(register);
         }
     }
+
+    [Command("registers", Aliases = ["reg"], Group = "Files",
+        Description = "List what each register is holding")]
+    public void Registers(
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var names = _host.Registers.Names;
+
+        if (names.Count == 0)
+        {
+            messages.Info("All registers are empty.");
+            return;
+        }
+
+        // One line, because the status bar is one line. Registers hold a handful of paths
+        // at a time, and the count plus the verb is what the user is checking.
+        messages.Info(string.Join("  ", names.Select(name =>
+        {
+            var contents = _host.Registers[name];
+            return $"\"{name} {(contents.Cut ? "cut" : "yank")} {contents.Paths.Count}";
+        })));
+    }
+
+    /// <summary>Names the register in a message, unless it was the unnamed one.</summary>
+    private static string Into(char register) =>
+        register == RegisterFile.UnnamedName ? string.Empty : $" into \"{register}";
 
     // ---- Destructive
 

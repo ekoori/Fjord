@@ -1,5 +1,18 @@
 namespace Fjord.Core.Panes;
 
+/// <summary>What the next keystroke names.</summary>
+public enum NameTarget
+{
+    /// <summary>The register the following command should use, as <c>"</c> does.</summary>
+    Register,
+
+    /// <summary>The mark to set here, as <c>m</c> does.</summary>
+    MarkToSet,
+
+    /// <summary>The mark to jump to, as <c>'</c> does.</summary>
+    MarkToVisit,
+}
+
 /// <summary>
 /// Mode and application actions a command may take.
 /// </summary>
@@ -24,6 +37,19 @@ public interface IModeHost
 
     /// <summary>Opens the command line, pre-filled with <paramref name="initial"/>.</summary>
     void EnterCommandLine(string initial);
+
+    /// <summary>
+    /// Waits for one keystroke and treats it as a name rather than a binding.
+    /// </summary>
+    /// <remarks>
+    /// How <c>"a</c>, <c>ma</c> and <c>'a</c> all work: the second key is data. Routing it
+    /// through here rather than special-casing the three characters in the key handler is
+    /// what keeps them rebindable — a user who wants <c>M</c> to set marks can say so.
+    /// </remarks>
+    void ReadName(NameTarget target);
+
+    /// <summary>Directories remembered with <c>m</c>.</summary>
+    Navigation.MarkFile Marks { get; }
 
     /// <summary>Turns the render-time overlay on or off. Returns the new state.</summary>
     bool ToggleFrameStats();

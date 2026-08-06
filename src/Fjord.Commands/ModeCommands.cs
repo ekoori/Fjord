@@ -44,6 +44,55 @@ public sealed class ModeCommands
         Description = "Open the command line")]
     public void CommandMode(string initial = ":") => _host.EnterCommandLine(initial);
 
+    [Command("register-select", Group = "Mode",
+        Description = "Name the register the next command uses")]
+    public void RegisterSelect() => _host.ReadName(NameTarget.Register);
+
+    [Command("mark-set", Group = "Navigation",
+        Description = "Remember this directory under the next key pressed")]
+    public void MarkSet() => _host.ReadName(NameTarget.MarkToSet);
+
+    [Command("mark-visit", Group = "Navigation",
+        Description = "Go to the mark named by the next key pressed")]
+    public void MarkVisit() => _host.ReadName(NameTarget.MarkToVisit);
+
+    [Command("marks", Group = "Navigation", Description = "List the marks that are set")]
+    public void Marks([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var names = _host.Marks.Names;
+
+        if (names.Count == 0)
+        {
+            messages.Info("No marks set. Press m then a key to set one.");
+            return;
+        }
+
+        messages.Info(string.Join(
+            "  ", names.Select(name => $"{name} {_host.Marks.Get(name)!.Value.Directory}")));
+    }
+
+    [Command("mark-clear", Group = "Navigation",
+        Description = "Forget one mark, or every mark when none is named")]
+    public void MarkClear(
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (name.Length == 0)
+        {
+            _host.Marks.Clear();
+            messages.Info("All marks forgotten.");
+            return;
+        }
+
+        _host.Marks.Clear(name[0]);
+        messages.Info($"Mark {name[0]} forgotten.");
+    }
+
     [Command("frame-stats", Group = "Diagnostics",
         Description = "Show or hide per-frame render times")]
     public void FrameStats([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages) =>
