@@ -157,10 +157,31 @@ function New-MixedSizesTree {
     [System.IO.Directory]::CreateDirectory($path) | Out-Null
 
     foreach ($size in $sizes) {
-        # SetLength on an empty file gives a sparse file on NTFS and most Linux
-        # filesystems, so a 4 GiB entry costs nothing but still formats and sorts as one.
-        $file = [System.IO.File]::Create((Join-Path $path ("size-{0}.bin" -f $size)))
-        try { $file.SetLength($size) } finally { $file.Dispose() }
+        $file = Join-Path $path ("size-{0}.bin" -f $size)
+
+        # Create, mark sparse, then extend — in that order, and the order is the point.
+        # SetLength alone does NOT produce a sparse file on NTFS: the file has to be told
+        # it is sparse first, with FSCTL_SET_SPARSE, which is what fsutil does here.
+        # Without it every byte is really allocated, and the two large entries — which
+        # exist only so the size column can be seen saying "1.0 GB" and "4.0 GB" — put
+        # five gigabytes on the disk. They did, until they filled it.
+        [System.IO.File]::Create($file).Dispose()
+
+        if ($size -gt 0) {
+            & fsutil sparse setflag $file | Out-Null
+            $stream = [System.IO.File]::Open($file, 'Open', 'Write')
+            try { $stream.SetLength($size) } finally { $stream.Dispose() }
+        }
+    }
+
+    # Checked rather than assumed. A file that failed to become sparse is identical from
+    # every direction except free space, so nothing would notice until the disk was full —
+    # which is how this was found.
+    $dense = Get-ChildItem $path |
+        Where-Object { $_.Length -gt 100MB -and ($_.Attributes -band [IO.FileAttributes]::SparseFile) -eq 0 }
+
+    if ($dense) {
+        Write-Warning ("  mixed-sizes: {0} really allocated its bytes" -f ($dense.Name -join ', '))
     }
 
     Write-Host ("  mixed-sizes      created ({0} entries)" -f $sizes.Count)

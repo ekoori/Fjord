@@ -393,7 +393,12 @@ public sealed class MainWindow : Window, IMessageSink
     {
         try
         {
-            using var stream = AssetLoader.Open(new Uri("avares://Fjord.App/Assets/fjord.ico"));
+            // The authority of an avares URI is the assembly name, not the namespace, and
+            // the two differ here: the project is Fjord.App and the executable is Fjord.
+            // Hard-coding either would break the icon the day the other changed, and the
+            // catch below would swallow it into a window that merely looks wrong.
+            var assembly = typeof(MainWindow).Assembly.GetName().Name;
+            using var stream = AssetLoader.Open(new Uri($"avares://{assembly}/Assets/fjord.ico"));
             return new WindowIcon(stream);
         }
         catch (Exception ex) when (ex is FileNotFoundException or IOException or ArgumentException)

@@ -30,6 +30,43 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
 - **Large directories.** 100,000 entries paints its first screen in about 25 ms.
 
+## Installing
+
+One self-contained executable per platform. No runtime to install, nothing to unpack, no
+installer — download, extract, run. About 50 MB, because the .NET runtime and the whole
+rendering stack are inside it.
+
+| | |
+|---|---|
+| Windows x64 | `fjord-<version>-win-x64.zip` |
+| Linux x64 | `fjord-<version>-linux-x64.tar.gz` |
+| macOS Apple Silicon | `fjord-<version>-osx-arm64.tar.gz` |
+| macOS Intel | `fjord-<version>-osx-x64.tar.gz` |
+
+```bash
+tar -xzf fjord-0.1.0-linux-x64.tar.gz
+./Fjord
+```
+
+**macOS needs one extra step.** The binary is not signed or notarised, so Gatekeeper will
+refuse to run it after a download. Clear the quarantine flag first:
+
+```bash
+xattr -d com.apple.quarantine ./Fjord
+```
+
+There is no `.app` bundle yet, so on macOS it runs from a terminal and shows up without a
+proper dock name. macOS is also the one platform none of this has been tried on — see
+[Platform support](#platform-support).
+
+Verified on a bare `debian:bookworm-slim` container with neither .NET nor libicu present.
+
+To build the archives yourself:
+
+```bash
+pwsh ./scripts/package.ps1
+```
+
 ## Building
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download). Nothing else.

@@ -2,12 +2,42 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <!-- The .exe icon on Windows. The window icon is set separately, in code. -->
-    <ApplicationIcon>Assets/fjord.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyTitle>Fjord</AssemblyTitle>
     <RootNamespace>Fjord.App</RootNamespace>
+    <!-- What the user launches is called Fjord, not Fjord.App. -->
+    <AssemblyName>Fjord</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Both are Windows resources. Applied when building for Windows or for no runtime at all,
+    which is the ordinary local build; naming them unconditionally makes a linux-x64 or
+    osx-arm64 publish fail on a manifest the target platform has no idea what to do with.
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('win'))">
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The .exe icon on Windows. The window icon is set separately, in code. -->
+    <ApplicationIcon>Assets/fjord.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!--
+    How Fjord is shipped: one self-contained executable per platform, with no runtime to
+    install and nothing to unpack.
+
+    Trimming is off and must stay off. Commands are discovered by reflecting over
+    [Command] attributes and invoked through MethodInfo, so the linker sees no call site
+    for any of them — a trimmed build would drop the lot and produce an app whose every
+    key press reports an unknown command. That is a silent failure at runtime, not a
+    build error, which is why this is written down rather than left to whoever tries it.
+  -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,6 +61,22 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
   </ItemGroup>
+
+  <!--
+    Debug symbols and XML docs, out of the publish set.
+
+    The property above only reaches assemblies we reference; SkiaSharp and HarfBuzz ship
+    *native* .pdb files inside their NuGet packages and those arrive through a different
+    item group entirely. That is 100 MB of symbols for libraries nobody is going to debug,
+    beside an executable of 49 MB — the archive was larger than the program in it.
+  -->
+  <Target Name="DropSymbolsFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish
+          Remove="@(ResolvedFileToPublish)"
+          Condition="'%(Extension)' == '.pdb' or '%(Extension)' == '.xml'" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Fjord.Commands\Fjord.Commands.csproj" />
