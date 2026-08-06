@@ -48,4 +48,73 @@ public sealed class ConfigService : IConfigService
             path, Commands.DefaultBindings.All, Commands.CommandCatalogue.Descriptions);
 
     public string? Reload() => _reload();
+
+    public IReadOnlyList<SettingInfo> Settings
+    {
+        get
+        {
+            var text = ReadOrEmpty();
+
+            return [.. SettingsSchema.All.Select(s =>
+                new SettingInfo(s.Name, s.Type, s.Doc, ConfigFile.GetScalar(text, s.Name)))];
+        }
+    }
+
+    /// <summary>
+    /// Validates a value, writes it into the file, and reloads.
+    /// </summary>
+    /// <remarks>
+    /// Three failure modes worth distinguishing, because they need different things from
+    /// the user: an unknown setting, a value the type will not take, and a key the file no
+    /// longer contains. The last one is real — the file is the user's to edit, and deleting
+    /// a line is a normal thing to do — so it is reported rather than silently appended
+    /// somewhere the surrounding comments no longer describe it.
+    /// </remarks>
+    public string? Set(string name, string value)
+    {
+        if (SettingsSchema.Find(name) is not { } setting)
+        {
+            return $"unknown setting '{name}'";
+        }
+
+        if (SettingsSchema.Validate(setting, value, out var rendered) is { } problem)
+        {
+            return problem;
+        }
+
+        try
+        {
+            EnsureExists();
+
+            var text = File.ReadAllText(ConfigFilePath);
+            var updated = ConfigFile.SetScalar(text, name, rendered);
+
+            if (ReferenceEquals(text, updated) || string.Equals(text, updated, StringComparison.Ordinal))
+            {
+                return $"'{name}' is not in {Path.GetFileName(ConfigFilePath)}; add it there first";
+            }
+
+            File.WriteAllText(ConfigFilePath, updated);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ex.Message;
+        }
+
+        // The watcher would get there eventually, but :set has to be synchronous from the
+        // user's point of view: type it, see the list change.
+        return _reload();
+    }
+
+    private string ReadOrEmpty()
+    {
+        try
+        {
+            return File.Exists(ConfigFilePath) ? File.ReadAllText(ConfigFilePath) : string.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return string.Empty;
+        }
+    }
 }

@@ -50,6 +50,7 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
+    private readonly ConfigService _configService;
     private readonly ILogger _log;
 
     private FjordConfig _config;
@@ -102,6 +103,8 @@ public sealed class MainWindow : Window, IMessageSink
         _taskPanel = new TaskPanel(_theme);
         _help = new HelpOverlay(_theme);
 
+        _configService = new ConfigService(_paths, ReloadConfig);
+
         var registry = new CommandRegistry();
         registry.Register(new NavigationCommands(platform));
         registry.Register(new PlatformCommands(platform));
@@ -111,7 +114,7 @@ public sealed class MainWindow : Window, IMessageSink
             _bindings,
             _modeRegistry,
             _help,
-            new ConfigService(_paths, ReloadConfig),
+            _configService,
             platform));
 
         // The mode manager asks the registry whether a command is an operator, and the
@@ -142,7 +145,10 @@ public sealed class MainWindow : Window, IMessageSink
 
         _commandLine = new CommandLine(
             _theme,
-            new CompletionEngine(registry, new PathCompletionSource(() => _workspace.ActivePane)));
+            new CompletionEngine(
+                registry,
+                new PathCompletionSource(() => _workspace.ActivePane),
+                SettingCompletions));
 
         DefaultBindings.Load(_bindings, _modeRegistry);
         ApplyUserBindings();
@@ -363,6 +369,11 @@ public sealed class MainWindow : Window, IMessageSink
     /// A failure here must not stop the app starting with an empty window: a corrupt or
     /// stale session is annoying, an app that will not open is not usable at all.
     /// </remarks>
+    /// <summary>Setting names for <c>:set</c>, each showing what the file says now.</summary>
+    private IReadOnlyList<CompletionItem> SettingCompletions() =>
+        [.. _configService.Settings.Select(s => new CompletionItem(
+            s.Name, s.Current is null ? s.Doc : $"= {s.Current}  {s.Doc}"))];
+
     private async Task RestoreOrOpenAsync(PaneController pane)
     {
         try

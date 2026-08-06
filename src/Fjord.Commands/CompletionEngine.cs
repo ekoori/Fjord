@@ -72,11 +72,20 @@ public sealed class CompletionEngine
 {
     private readonly CommandRegistry _registry;
     private readonly IPathCompletionSource? _paths;
+    private readonly Func<IReadOnlyList<CompletionItem>>? _settings;
 
-    public CompletionEngine(CommandRegistry registry, IPathCompletionSource? paths = null)
+    /// <param name="settings">
+    /// Setting names and their documentation. A delegate rather than a list because the
+    /// current value shown alongside each name changes as the file is edited.
+    /// </param>
+    public CompletionEngine(
+        CommandRegistry registry,
+        IPathCompletionSource? paths = null,
+        Func<IReadOnlyList<CompletionItem>>? settings = null)
     {
         _registry = registry;
         _paths = paths;
+        _settings = settings;
     }
 
     /// <summary>Completes the word ending at <paramref name="caret"/>.</summary>
@@ -153,9 +162,15 @@ public sealed class CompletionEngine
         {
             CompletionKind.Path => CompletePath(word, directoriesOnly: false),
             CompletionKind.Directory => CompletePath(word, directoriesOnly: true),
+            CompletionKind.Setting => CompleteSetting(word),
             _ => [],
         };
     }
+
+    private List<CompletionItem> CompleteSetting(string word) =>
+        (_settings?.Invoke() ?? [])
+            .Where(s => s.Text.Contains(word, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
     /// <summary>
     /// Decides which declared argument the caret is sitting in.

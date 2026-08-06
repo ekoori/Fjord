@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Fjord.Config;
@@ -68,6 +69,87 @@ public static class SettingsSchema
 
     public static SettingDefinition? Find(string name) =>
         All.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Checks a value against a setting's declared type and renders it as a YAML scalar.
+    /// </summary>
+    /// <param name="rendered">The value ready to write, quoted where YAML needs it.</param>
+    /// <returns>Why the value was refused, or null when it is good.</returns>
+    /// <remarks>
+    /// Validating here rather than after a reload is what makes <c>:set</c> safe to use: a
+    /// rejected value never reaches the file, so a typo cannot leave the user with a config
+    /// that no longer parses and an app running on defaults.
+    /// </remarks>
+    public static string? Validate(SettingDefinition setting, string value, out string rendered)
+    {
+        ArgumentNullException.ThrowIfNull(setting);
+        ArgumentNullException.ThrowIfNull(value);
+
+        rendered = string.Empty;
+        var type = setting.Type;
+
+        // The one setting that is a nested map rather than a scalar. Rewriting it needs a
+        // structural edit, which SetScalar deliberately cannot do.
+        if (type.Contains("->", StringComparison.Ordinal))
+        {
+            return $"{setting.Name} is edited in the file, not with :set";
+        }
+
+        if (type.Contains('|', StringComparison.Ordinal))
+        {
+            var allowed = type.Split('|').Select(o => o.Trim()).ToList();
+
+            if (!allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
+            {
+                return $"{setting.Name} takes {type}";
+            }
+
+            rendered = value.ToLowerInvariant();
+            return null;
+        }
+
+        switch (type)
+        {
+            case "number":
+                if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+                {
+                    return $"{setting.Name} takes a number";
+                }
+
+                rendered = number.ToString(CultureInfo.InvariantCulture);
+                return null;
+
+            case "#RRGGBB":
+                if (!IsHexColor(value))
+                {
+                    return $"{setting.Name} takes a colour as #RRGGBB";
+                }
+
+                rendered = QuoteScalar(value);
+                return null;
+
+            default:
+                rendered = QuoteScalar(value);
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Wraps a value in double quotes, escaping what YAML requires.
+    /// </summary>
+    /// <remarks>
+    /// Always quoted, even when it would parse bare. An unquoted font family called
+    /// <c>y</c> or <c>on</c> would come back as a boolean, which is the same trap the
+    /// binding keys have.
+    /// </remarks>
+    private static string QuoteScalar(string value) =>
+        "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                    .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+
+    private static bool IsHexColor(string value) =>
+        value.Length == 7
+        && value[0] == '#'
+        && value[1..].All(c => char.IsAsciiHexDigit(c));
 
     /// <summary>
     /// Renders the documented default configuration file.

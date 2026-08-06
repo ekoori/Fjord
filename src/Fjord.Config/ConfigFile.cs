@@ -127,6 +127,46 @@ public static class ConfigFile
         return string.Join(Environment.NewLine, lines);
     }
 
+    /// <summary>
+    /// Reads a scalar out of existing YAML text, exactly as written.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately reads the text rather than the parsed object. What <c>:set</c> shows has
+    /// to be what the file says — including a value that is about to be rejected on the next
+    /// reload — or the report would describe a config the user does not have.
+    /// </remarks>
+    public static string? GetScalar(string yaml, string dottedName)
+    {
+        ArgumentNullException.ThrowIfNull(yaml);
+        ArgumentNullException.ThrowIfNull(dottedName);
+
+        var parts = dottedName.Split('.');
+        var lines = yaml.ReplaceLineEndings("\n").Split('\n');
+
+        var depth = 0;
+        var searchingFrom = 0;
+
+        for (; depth < parts.Length - 1; depth++)
+        {
+            var found = FindKeyLine(lines, parts[depth], depth * 2, searchingFrom);
+            if (found < 0)
+            {
+                return null;
+            }
+
+            searchingFrom = found + 1;
+        }
+
+        var target = FindKeyLine(lines, parts[^1], depth * 2, searchingFrom);
+        if (target < 0)
+        {
+            return null;
+        }
+
+        var value = lines[target][(lines[target].IndexOf(':', StringComparison.Ordinal) + 1)..].Trim();
+        return value.Length == 0 ? null : value;
+    }
+
     /// <summary>Finds the line declaring <paramref name="key"/> at exactly the given indent.</summary>
     private static int FindKeyLine(string[] lines, string key, int indent, int from)
     {

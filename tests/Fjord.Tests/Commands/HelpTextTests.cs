@@ -48,6 +48,29 @@ internal sealed class FakeConfigService : IConfigService
         ReloadCalls++;
         return ReloadError;
     }
+
+    /// <summary>Two settings, enough to tell "unknown" from "wrong value" apart.</summary>
+    public IReadOnlyList<SettingInfo> Settings { get; set; } =
+    [
+        new("appearance.font_size", "number", "Font size in DIPs.", "13"),
+        new("listing.show_hidden", "true | false", "Show dotfiles.", null),
+    ];
+
+    /// <summary>What Set will refuse with, or null to accept.</summary>
+    public string? SetError { get; set; }
+
+    public List<(string Name, string Value)> Written { get; } = [];
+
+    public string? Set(string name, string value)
+    {
+        if (SetError is not null)
+        {
+            return SetError;
+        }
+
+        Written.Add((name, value));
+        return null;
+    }
 }
 
 public class HelpTextTests

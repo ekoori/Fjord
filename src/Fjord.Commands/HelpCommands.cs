@@ -94,6 +94,55 @@ public sealed class HelpCommands
     public void ConfigPath([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages) =>
         messages.Info(_config.ConfigFilePath);
 
+    /// <summary>
+    /// Reads or writes one setting.
+    /// </summary>
+    /// <remarks>
+    /// Writes go through the file, comments and key order intact, and take effect on the
+    /// reload that follows. That is the whole reason <c>:set</c> is worth having over just
+    /// editing the file: it is the same change, without leaving the keyboard or losing your
+    /// place in the listing.
+    /// </remarks>
+    [Command("set", Group = "Help",
+        Description = "Show or change one setting, writing it to the configuration file")]
+    public void Set(
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Completion = CompletionKind.Setting)] string name = "",
+        string value = "")
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (name.Length == 0)
+        {
+            messages.Info("Usage: :set <name> [value]. Tab completes the names.");
+            return;
+        }
+
+        if (_config.Settings.FirstOrDefault(
+                s => string.Equals(s.Name, name, StringComparison.Ordinal)) is not { } setting)
+        {
+            messages.Error($"Unknown setting '{name}'.");
+            return;
+        }
+
+        // No value is a question, not an empty assignment — vim's ":set opt?".
+        if (value.Length == 0)
+        {
+            messages.Info($"{setting.Name} = {setting.Current ?? "(unset)"}   [{setting.Type}]");
+            return;
+        }
+
+        if (_config.Set(name, value) is { } problem)
+        {
+            messages.Error(problem);
+            return;
+        }
+
+        messages.Info($"{name} = {value}");
+    }
+
     /// <remarks>
     /// The watcher normally handles this. Kept for the cases it cannot see: an editor that
     /// writes through a path the watcher is not on, a file restored from elsewhere, or a

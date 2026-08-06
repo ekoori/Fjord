@@ -1,16 +1,20 @@
 namespace Fjord.Core.Config;
 
+/// <summary>One setting, as <c>:set</c> and completion see it.</summary>
+/// <param name="Type">Human-readable, e.g. <c>true | false</c>. Shown when a value is rejected.</param>
+/// <param name="Current">What the file says now, already rendered as it appears there.</param>
+public sealed record SettingInfo(string Name, string Type, string Doc, string? Current);
+
 /// <summary>
 /// The configuration file, as commands see it.
 /// </summary>
 /// <remarks>
-/// Deliberately narrow. The plan sketched a <c>Get</c>/<c>Set</c>/<c>Bind</c> surface, but
-/// nothing needs one yet — <c>:set</c> and <c>:bind</c> do not exist, and editing the file
-/// is how settings change today. Adding those methods now would be guessing at their shape
-/// before there is a caller to shape them.
+/// Exists so <c>Fjord.Commands</c> can offer <c>:config</c> and <c>:set</c> without
+/// depending on <c>Fjord.Config</c> — the edge the architecture deliberately avoids.
 /// <para>
-/// It exists at all so <c>Fjord.Commands</c> can offer <c>:config</c> without depending on
-/// <c>Fjord.Config</c> — the edge the architecture deliberately avoids.
+/// <c>:bind</c> is still absent, and so is a method for it. Editing a binding means
+/// rewriting a nested map rather than a scalar, and the shape of that call is worth
+/// deciding when there is a caller to shape it.
 /// </para>
 /// </remarks>
 public interface IConfigService
@@ -31,4 +35,18 @@ public interface IConfigService
     /// <summary>Re-reads the file now, rather than waiting for the watcher.</summary>
     /// <returns>The error if it failed to parse, or null on success.</returns>
     string? Reload();
+
+    /// <summary>Every documented setting, with what the file currently says.</summary>
+    IReadOnlyList<SettingInfo> Settings { get; }
+
+    /// <summary>
+    /// Writes one setting to the file and applies it.
+    /// </summary>
+    /// <returns>Why it was refused, or null when it was written.</returns>
+    /// <remarks>
+    /// Goes through the file rather than an in-memory override, so what the user sees when
+    /// they next open <c>config.yaml</c> is what is actually in effect. A <c>:set</c> that
+    /// only lived until restart would be a worse kind of surprise than no <c>:set</c> at all.
+    /// </remarks>
+    string? Set(string name, string value);
 }

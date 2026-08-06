@@ -77,6 +77,11 @@ undone.
 `:config` opens the file in your editor. Saving applies immediately — no restart, no
 reload command.
 
+`:set` changes one setting without leaving the keyboard — `:set appearance.font_size 15`,
+or `:set appearance.font_size` on its own to see what it is now. Tab completes the names.
+Writes go into the file, comments and ordering intact, so what you see next time you open
+it is what is actually in effect.
+
 ```yaml
 appearance:
   font_size: 13

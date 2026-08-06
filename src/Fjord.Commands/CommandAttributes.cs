@@ -153,4 +153,7 @@ public enum CompletionKind
 
     /// <summary>Directories only, as <c>:cd</c> wants.</summary>
     Directory,
+
+    /// <summary>Setting names, as <c>:set</c> wants.</summary>
+    Setting,
 }
