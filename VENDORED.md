@@ -5,10 +5,12 @@ Keep this file current — the point is that a future reader can diff against up
 
 ## QuteSharp key-input layer
 
-**Source:** `C:\Users\igor\dev\qutesharp` (local sibling repo, no public remote at time of
-copying). QuteSharp is itself a C# port of qutebrowser 3.7.0, so this code is three
-generations from its origin; the parsing semantics and the test tables come from
-qutebrowser's `qutebrowser/keyinput/` and `tests/unit/keyinput/`.
+**Source:** QuteSharp, a C# port of
+[qutebrowser](https://github.com/qutebrowser/qutebrowser) 3.7.0, taken from a local working
+copy that had no public remote when this code was copied. The immediate source therefore
+cannot be linked, and anyone wanting to diff should go to qutebrowser itself: the parsing
+semantics and the test tables come from `qutebrowser/keyinput/` and
+`tests/unit/keyinput/` there, and this code is three generations from that origin.
 
 **Why copied rather than referenced:** every QuteSharp project pins `net8.0` to match its
 vendored CefGlue stack, so a `net10.0` project cannot reference them. Fjord also has to
@@ -72,7 +74,7 @@ of, so the code was always going to diverge.
 
 ## QuteSharp command infrastructure
 
-**Source:** `C:\Users\igor\dev\qutesharp\src\QuteSharp.Commands\`.
+**Source:** the same QuteSharp working copy, `src/QuteSharp.Commands/`.
 
 | Fjord | QuteSharp origin |
 |---|---|

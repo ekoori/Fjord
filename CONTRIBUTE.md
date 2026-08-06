@@ -93,7 +93,12 @@ from that schema.
   motivated the guard, the thing the next reader would otherwise "simplify" back into a bug.
 - Do not restate parameter names in XML docs; `CS1573` is off precisely so you can document
   only the parameter that is not obvious.
-- Constructor injection only. `IServiceProvider` is injected into nothing.
+- Constructor injection only, and by hand. There is no container: `MainWindow` builds the
+  graph, and a dependency you forgot to supply fails to compile rather than at startup.
+- Logging lives at the composition root. The lower assemblies raise events for what is
+  worth recording, so a logger is not threaded through logic that tests better without one.
+  Never log per directory entry — one record in the transform makes a 100,000-entry
+  directory take the better part of a minute.
 
 ## Vendored code
 

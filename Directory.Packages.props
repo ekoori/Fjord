@@ -11,11 +11,18 @@
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.5" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageVersion Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3" />
-    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
+  <!--
+    CommunityToolkit.Mvvm and Microsoft.Extensions.DependencyInjection were listed here
+    from the start of the plan and never taken up. There is no MVVM: the list is drawn
+    immediately and the chrome is built in code, so there is nothing to bind. There is no
+    container either: the object graph is shallow enough that hand-wiring it in MainWindow
+    reads better and catches a missing dependency at compile time rather than at startup.
+    A version for a package nobody references only invites someone to add the reference
+    because it looks sanctioned.
+  -->
   <ItemGroup Label="Infrastructure">
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />

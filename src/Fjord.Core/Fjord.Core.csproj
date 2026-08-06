@@ -2,11 +2,12 @@
 
   <!--
     Pure logic: keys, input modes, filesystem enumeration, selection, navigation.
-    Must never reference Avalonia, and references only Logging.Abstractions so it
-    stays usable from tests and from any future headless host.
+    Must never reference Avalonia.
+
+    No logging package either, and deliberately. Nothing here logs: the pane controller
+    sees every batch and the operation queue reports every state change, so the composition
+    root can record both without a logger being threaded through code that is easier to
+    test without one. The reference was here unused for a while, which is its own argument.
   -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-  </ItemGroup>
 
 </Project>

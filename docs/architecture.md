@@ -62,6 +62,18 @@ tools pointed at the file (yq, editor YAML modes) *do* apply boolean inference, 
 Putting SQLite in Core would drag `SQLitePCLRaw` native assets into the pure-logic
 assembly.
 
+**There is no DI container.** The plan called for
+`Microsoft.Extensions.DependencyInjection` with `ValidateOnBuild = true`, so that a missing
+registration fails loudly at startup rather than as a null reference three screens later.
+`MainWindow` is the composition root and wires everything by hand instead. The object graph
+is about fifteen objects deep in one place, and hand-wiring it gets the same guarantee from
+the compiler: a dependency you forgot to supply does not build. The package version is gone
+from `Directory.Packages.props` so nobody adds the reference because it looks sanctioned.
+
+**There is no MVVM.** `CommunityToolkit.Mvvm` was in the plan's package list and never
+used, for the same reason there is no XAML: the list is drawn immediately and the chrome is
+built in code, so there is nothing to bind to.
+
 ## The file list is drawn, not composed
 
 `FileListView` is a single `Control` that overrides `Render(DrawingContext)`. There is no
@@ -346,7 +358,29 @@ the pane simply looks empty with nothing to explain why.
 `scripts/make-benchmark-tree.ps1` builds `bench/deep` with 434-character paths using the
 `\\?\` prefix, because Windows PowerShell 5.1 is not itself long-path aware. That prefix
 disables all path normalisation, so paths given to it must already be absolute and
-backslash-separated.
+backslash-separated. It is needed for deletes as well as writes: without it, rebuilding the
+`unicode` tree fails and leaves it half-removed.
+
+`scripts/make-benchmark-tree.sh` is the twin, producing the same trees with the same names
+and counts so a number measured on Linux means what one measured on Windows means. The one
+place they cannot agree is the long CJK stress name: NTFS counts 255 UTF-16 units and Linux
+counts 255 bytes, so at three bytes per character the name is capped at what both accept.
+
+## Names the platform resolves elsewhere
+
+Windows strips trailing dots and spaces while resolving a path. An entry actually named
+`...` resolves to the directory holding it, and one named `report.` resolves to `report`.
+Neither can be created through Win32, but both arrive over SMB and from other operating
+systems routinely.
+
+Untreated this is not cosmetic: trashing the entry named `...` would trash its parent.
+`PathSafety.IsAddressable` asks whether the OS resolves a path back to the name it was
+given, and `PaneController.PathAt` — the single place an entry becomes a path any operation
+will act on — returns null when it does not, and logs. On Linux and macOS these names
+resolve to themselves and nothing is refused, which is why the check asks the platform
+rather than keeping a list of characters to fear.
+
+Found by `PathPropertyTests`, not by anyone thinking of it.
 
 ## No XAML
 
