@@ -71,6 +71,21 @@ public static class SettingsSchema
             + "bare n, y, on, off, yes and no as booleans."),
     ];
 
+    /// <summary>
+    /// The placeholders a command-line binding may contain.
+    /// </summary>
+    /// <remarks>
+    /// Duplicated from <c>CommandTemplate</c> rather than referenced: Fjord.Config does not
+    /// depend on Fjord.Commands and should not start to for a documentation table. A test
+    /// asserts the two agree.
+    /// </remarks>
+    public static IReadOnlyList<(string Token, string Meaning)> Placeholders { get; } =
+    [
+        ("{name}", "the entry under the cursor"),
+        ("{path}", "its full path"),
+        ("{dir}", "the directory being shown"),
+    ];
+
     public static SettingDefinition? Find(string name) =>
         All.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
 
@@ -265,6 +280,20 @@ public static class SettingsSchema
         output.AppendLine("# Key syntax: a bare character, or <> for anything else - <Ctrl+d>, <Escape>,");
         output.AppendLine("# <Space>, <Return>, <PgDown>, <F1>. Multi-key sequences are written together,");
         output.AppendLine("# as in \"gg\". Run :help for what each command does.");
+        output.AppendLine("#");
+        output.AppendLine("# A command starting with ':' opens the command line holding that text instead");
+        output.AppendLine("# of running it, so the key is a starting point you finish. Without the colon");
+        output.AppendLine("# the same line runs on the key press:");
+        output.AppendLine("#");
+        output.AppendLine("#   \"c\": \":cd \"                the line opens, you type where to go");
+        output.AppendLine("#   \"~\": \"cd ~/Downloads\"      no colon, so it goes there");
+        output.AppendLine("#");
+        output.AppendLine("# Inside a ':' binding these fill themselves in, already quoted:");
+
+        foreach (var (token, meaning) in Placeholders)
+        {
+            output.Append("#   ").Append(token.PadRight(10)).AppendLine(meaning);
+        }
 
         if (defaults is null || defaults.Count == 0)
         {

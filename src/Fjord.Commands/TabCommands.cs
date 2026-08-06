@@ -74,6 +74,27 @@ public sealed class TabCommands
         }
     }
 
+    /// <remarks>
+    /// Not bound to a key by default. It is a deliberate act on one tab, not something you
+    /// reach for often, and every unshifted letter is already spoken for.
+    /// </remarks>
+    [Command("tab-lock", Aliases = ["lock"], Group = "Tabs",
+        Description = "Pin this tab to its directory; navigating out opens a new tab")]
+    public void TabLock(
+        [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var tab = workspace.Current;
+        tab.IsLocked = !tab.IsLocked;
+
+        messages.Info(tab.IsLocked
+            ? $"Locked to {tab.Title}. Navigating out opens a new tab."
+            : $"Unlocked {tab.Title}.");
+    }
+
     [Command("tab-move", Group = "Tabs", Description = "Move the current tab to position <count>")]
     public void TabMove(
         [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace,

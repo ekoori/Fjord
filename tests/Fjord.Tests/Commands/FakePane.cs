@@ -106,6 +106,11 @@ public sealed class FakePane : IPane
     /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
     public bool IsVirtual { get; set; }
 
+    /// <summary>Where a virtual listing was opened from, when a test sets one.</summary>
+    public string? Origin { get; set; }
+
+    public string RestorableDirectory => Origin ?? Directory;
+
     /// <summary>What Enter on a row of a virtual index does, when a test sets one.</summary>
     public Func<string, Task>? VirtualOpen { get; set; }
 

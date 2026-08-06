@@ -288,15 +288,28 @@ public sealed class MainWindow : Window, IMessageSink
 
         Opened += async (_, _) =>
         {
-            ClampToScreen();
-            _list.Focus();
+            // An async event handler swallows whatever escapes it. Everything that gets the
+            // first listing on screen happens in here, so a failure would leave an empty
+            // window and an empty log — which is exactly what it did.
+            try
+            {
+                ClampToScreen();
+                _list.Focus();
 
-            var pane = _workspace.Initialise();
-            pane.Changed += (_, _) => UpdateChrome();
+                var pane = _workspace.Initialise();
+                pane.Changed += (_, _) => UpdateChrome();
 
-            // The window is already up and interactive here, so restoring cannot delay it
-            // — which was the whole point of not doing this before Opened.
-            await RestoreOrOpenAsync(pane);
+                // The window is already up and interactive here, so restoring cannot delay
+                // it — which was the whole point of not doing this before Opened.
+                await RestoreOrOpenAsync(pane);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "startup failed after the window opened");
+                _message = $"startup failed: {ex.Message}";
+                _messageLevel = MessageLevel.Error;
+                UpdateChrome();
+            }
         };
 
         bool IsOperator(string name) => registry.Find(name)?.IsOperator == true;
@@ -603,9 +616,13 @@ public sealed class MainWindow : Window, IMessageSink
             var isCurrent = i == _workspace.CurrentIndex;
             var index = i;
 
+            var tab = _workspace.Tabs[i];
+
             var label = new TextBlock
             {
-                Text = $"{i + 1}: {_workspace.Tabs[i].Title}",
+                // The lock goes before the number, so a column of tabs lines up on the
+                // number whether or not any of them are locked.
+                Text = $"{(tab.IsLocked ? "🔒 " : "")}{i + 1}: {tab.Title}",
                 FontFamily = _theme.Typeface.FontFamily,
                 FontSize = _theme.FontSize,
                 Foreground = isCurrent ? _theme.FileText : _theme.MutedText,

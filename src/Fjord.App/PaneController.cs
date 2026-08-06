@@ -34,6 +34,17 @@ public sealed class PaneController : IPane
     // What opening a row means, when the rows are names rather than paths.
     private Func<string, Task>? _openVirtual;
 
+    /// <summary>
+    /// Given first refusal on every navigation to a different directory.
+    /// </summary>
+    /// <remarks>
+    /// How a locked tab works. The pane knows nothing about tabs, so the workspace supplies
+    /// this and answers true when it handled the navigation somewhere else. Putting it here
+    /// rather than in each navigation command means every route out — Enter, h, :cd, a
+    /// quickmark, history — goes through the same door.
+    /// </remarks>
+    public Func<string, string?, bool>? Redirect { get; set; }
+
     // State held while this pane is not the one on screen. One FileListView serves every
     // tab, so an inactive pane cannot leave its cursor and selection there; it keeps them
     // here and hands them back on activation. That is what makes switching tabs a pointer
@@ -225,7 +236,33 @@ public sealed class PaneController : IPane
     /// </param>
     public async Task NavigateAsync(string directory, string? selectName = null, bool recordHistory = true)
     {
-        var full = Path.GetFullPath(directory);
+        string full;
+
+        try
+        {
+            full = Path.GetFullPath(directory);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                       or NotSupportedException
+                                       or PathTooLongException)
+        {
+            // Nothing above here can be trusted to have handed us a path: a restored
+            // session, a scrapbook label, a hand-edited database. Refusing one navigation
+            // is survivable; throwing out of here is not, because the caller is often a
+            // fire-and-forget restore that takes every other tab down with it.
+            _log.LogWarning(ex, "cannot navigate to {Directory}", directory);
+            return;
+        }
+
+        // Asked before anything is torn down, and only for a real move: a reload navigates
+        // to the directory already showing, and spawning a tab for that would make r
+        // unusable.
+        if (!string.Equals(full, Directory, StringComparison.Ordinal)
+            && Redirect is { } redirect
+            && redirect(full, selectName))
+        {
+            return;
+        }
 
         // Navigating anywhere real ends the virtual listing, so entering a scrapbook item's
         // folder does not leave the pane thinking it is still in the scrapbook.
@@ -337,6 +374,18 @@ public sealed class PaneController : IPane
     }
 
     public bool IsVirtual => _leftBehind is not null;
+
+    /// <summary>
+    /// The directory a session should record for this pane.
+    /// </summary>
+    /// <remarks>
+    /// A virtual listing's <see cref="Directory"/> is a label like <c>scrapbook:default</c>,
+    /// not a path. Saving that put a tab in the session that could never be restored — and
+    /// on Windows the colon made <see cref="Path.GetFullPath(string)"/> throw a
+    /// <see cref="NotSupportedException"/> on the way back in, which took the whole restore
+    /// with it and left an empty window with nothing to explain why.
+    /// </remarks>
+    public string RestorableDirectory => _leftBehind?.Directory ?? Directory;
 
     public Task<bool> OpenVirtualAsync(int row)
     {

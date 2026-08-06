@@ -78,6 +78,8 @@ internal sealed class FakeWorkspace : IWorkspace
         public IReadOnlyList<IPane> Panes => [pane];
 
         public string Title => pane.Directory;
+
+        public bool IsLocked { get; set; }
     }
 }
 
@@ -232,5 +234,21 @@ public class TabCommandTests
 
         Assert.Equal(["/c", "/a", "/b"], workspace.Directories);
         Assert.Equal(0, workspace.CurrentIndex);
+    }
+
+    [Fact]
+    public void LockingTogglesAndSaysWhichWay()
+    {
+        var parser = Parser();
+        var workspace = new FakeWorkspace("/a");
+        var messages = new RecordingMessageSink();
+
+        parser.Execute("tab-lock", new CommandContext { Workspace = workspace, Messages = messages });
+        Assert.True(workspace.Current.IsLocked);
+        Assert.Contains("Locked", messages.Last!, StringComparison.Ordinal);
+
+        parser.Execute("tab-lock", new CommandContext { Workspace = workspace, Messages = messages });
+        Assert.False(workspace.Current.IsLocked);
+        Assert.Contains("Unlocked", messages.Last!, StringComparison.Ordinal);
     }
 }

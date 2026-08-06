@@ -20,8 +20,9 @@ progress bars, a trash that works, and a window that behaves like the rest of th
   cancellable, with progress, and **undoable** with `u`.
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
 - **Tabs** with `L`/`H`, and history with `Ctrl-o`/`Ctrl-i`.
-- **Registers and marks.** `"ay` collects into `"a`; `mp` remembers a directory and
-  `'p` returns to it. Marks survive a restart.
+- **Registers and quickmarks.** `"ay` collects into `"a`; `m` names the directory you are
+  in and `:cd <name>` goes back to it. Quickmarks survive a restart.
+- **Lockable tabs.** Pin a tab to its folder; navigating out opens a new one and follows it.
 - **A `:` command line** with history and path completion.
 - **Fuzzy search.** `/` narrows the listing as you type: `fjc` finds `Fjord.Core.csproj`.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
@@ -57,15 +58,18 @@ out of date.
 | `v` | visual mode |
 | `y` `x` | yank / cut — operators, so `y2j` takes three rows |
 | `p` | paste |
-| `d` | trash — an operator, so `d3j` takes four rows |
+| `d` | trash — an operator, so `d3j` takes four rows and `dd` takes one |
 | `D` | trash the selection |
 | `u` `Ctrl-r` | undo / redo |
 | `/` | search — narrows the listing |
 | `S` `gs` | add to scrapbook / open it |
 | `"a` | use register `a` for the next yank, cut or paste |
-| `m` `'` | set a mark here / go to one |
+| `m` | name this directory as a quickmark |
+| `c` `'` | `:cd ` — quickmarks and recent folders, then the filesystem |
+| `F2` | rename, with the current name filled in |
+| `Y` | copy the full paths to the system clipboard as text |
 | `L` `H` | next / previous tab |
-| `Ctrl-o` `Ctrl-i` | back / forward |
+| `Ctrl-h` `Ctrl-l` | back / forward |
 | `?` | help |
 | `:` | command line |
 
@@ -76,6 +80,18 @@ undone.
 
 `:config` opens the file in your editor. Saving applies immediately — no restart, no
 reload command.
+
+Keys are rebindable in the `bindings:` section. A command starting with `:` opens the
+command line holding that text instead of running it, which is how a key becomes a starting
+point rather than a whole action:
+
+```yaml
+bindings:
+  normal:
+    "c": ":cd "                 # opens the line; you finish it
+    "~": "cd ~/Downloads"       # no colon, so it just goes there
+    "<F2>": ":rename {name}"    # {name}, {path} and {dir} fill themselves in
+```
 
 `:set` changes one setting without leaving the keyboard — `:set appearance.font_size 15`,
 or `:set appearance.font_size` on its own to see what it is now. Tab completes the names.

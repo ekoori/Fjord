@@ -33,7 +33,10 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
                 .Where(p => p is not null)
                 .ToList();
 
-            tabs.Add(new SavedTab(pane.Directory, pane.CursorName, selection!));
+            // RestorableDirectory, not Directory: a pane showing a scrapbook has a label
+            // where its path would be, and the tab comes back pointed at the real place it
+            // was opened from.
+            tabs.Add(new SavedTab(pane.RestorableDirectory, pane.CursorName, selection!));
         }
 
         return new SavedSession(name, tabs, _workspace.CurrentIndex);

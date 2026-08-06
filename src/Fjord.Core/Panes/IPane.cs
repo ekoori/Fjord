@@ -68,6 +68,17 @@ public interface IPane
     Task<bool> LeaveVirtualAsync();
 
     /// <summary>
+    /// The directory a session should record for this pane.
+    /// </summary>
+    /// <remarks>
+    /// The same as <see cref="Directory"/> except while a virtual listing is showing, when
+    /// that is a label rather than a path. Saving the label produced a tab that could not be
+    /// restored, and on Windows its colon made path normalisation throw and took the rest of
+    /// the restore with it.
+    /// </remarks>
+    string RestorableDirectory { get; }
+
+    /// <summary>
     /// Opens the row of a virtual listing whose entries are not paths.
     /// </summary>
     /// <returns>False when this listing's rows are ordinary paths.</returns>
@@ -116,6 +127,17 @@ public interface ITab
     IReadOnlyList<IPane> Panes { get; }
 
     string Title { get; }
+
+    /// <summary>
+    /// Whether this tab stays where it is.
+    /// </summary>
+    /// <remarks>
+    /// Navigating out of a locked tab opens a new one at the destination and moves to it,
+    /// so the tab keeps showing what it was pinned to and the user keeps browsing without
+    /// having to remember to open a tab first. Locking the place you keep coming back to is
+    /// the point — it is a bookmark you can already see.
+    /// </remarks>
+    bool IsLocked { get; set; }
 }
 
 /// <summary>The window's set of tabs.</summary>

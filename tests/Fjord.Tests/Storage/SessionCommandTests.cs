@@ -394,4 +394,23 @@ public class ScrapbookCommandTests
         Assert.Equal(MessageLevel.Error, messages.Messages[^1].Level);
         storage.Dispose();
     }
+
+    [Fact]
+    public void ASessionSavedFromAScrapbookRecordsTheRealDirectory()
+    {
+        // Found in a real session file. A pane showing a scrapbook has "scrapbook:default"
+        // where its path should be; saving that produced a tab pointing at a directory that
+        // never existed, and on Windows the colon made path normalisation throw on the way
+        // back in — which took every other tab in the restore down with it and left an
+        // empty window with nothing to explain why.
+        var pane = new FakePane("scrapbook:default") { IsVirtual = true, Origin = "/home/u/real" };
+
+        Assert.Equal("/home/u/real", pane.RestorableDirectory);
+    }
+
+    [Fact]
+    public void AnOrdinaryPaneRestoresToWhereItIs()
+    {
+        Assert.Equal("/home/u/src", new FakePane("/home/u/src").RestorableDirectory);
+    }
 }

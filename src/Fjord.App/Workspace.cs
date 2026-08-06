@@ -64,7 +64,7 @@ public sealed class Workspace : IWorkspace
     /// <summary>Creates the first tab. Separate from <see cref="OpenTab"/>, which needs one to exist.</summary>
     public PaneController Initialise()
     {
-        var tab = new Tab(_createPane());
+        var tab = NewTab();
         _tabs.Add(tab);
         _current = 0;
         tab.Controller.Activate();
@@ -77,7 +77,7 @@ public sealed class Workspace : IWorkspace
         NewTabPosition position = NewTabPosition.AfterCurrent,
         bool background = false)
     {
-        var tab = new Tab(_createPane());
+        var tab = NewTab();
         var index = position == NewTabPosition.End ? _tabs.Count : _current + 1;
         _tabs.Insert(index, tab);
 
@@ -101,6 +101,41 @@ public sealed class Workspace : IWorkspace
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+        return tab;
+    }
+
+    /// <summary>
+    /// Builds a tab and wires its pane's escape hatch.
+    /// </summary>
+    /// <remarks>
+    /// The redirect closes over the tab rather than over an index, because tabs move: a
+    /// closure holding position 2 would start diverting the wrong tab as soon as one to its
+    /// left was closed.
+    /// </remarks>
+    private Tab NewTab()
+    {
+        var tab = new Tab(_createPane());
+
+        tab.Controller.Redirect = (directory, selectName) =>
+        {
+            if (!tab.IsLocked)
+            {
+                return false;
+            }
+
+            // The new tab is not itself locked, so browsing on from it behaves normally.
+            // Opened beside the tab it came from rather than at the end, which is where
+            // the eye already is.
+            var opened = OpenTab(directory, NewTabPosition.AfterCurrent);
+
+            if (selectName is not null && opened is Tab created)
+            {
+                _ = created.Controller.MoveCursorToName(selectName);
+            }
+
+            return true;
+        };
+
         return tab;
     }
 
@@ -244,6 +279,8 @@ public sealed class Workspace : IWorkspace
         public Tab(PaneController controller) => Controller = controller;
 
         public PaneController Controller { get; }
+
+        public bool IsLocked { get; set; }
 
         public IPane Active => Controller;
 

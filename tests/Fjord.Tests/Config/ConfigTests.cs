@@ -406,6 +406,28 @@ public class SettingsSchemaTests
     }
 
     [Fact]
+    public void ThePlaceholderTableMatchesTheOneThatExpandsThem()
+    {
+        // Fjord.Config documents them and Fjord.Commands substitutes them, and the two are
+        // separate assemblies on purpose. A placeholder documented but not implemented is a
+        // binding that silently inserts the literal text "{name}".
+        Assert.Equal(
+            Fjord.Commands.CommandTemplate.Placeholders,
+            SettingsSchema.Placeholders);
+    }
+
+    [Fact]
+    public void TheGeneratedFileExplainsTheColonPrefix()
+    {
+        // The one binding feature nothing else would teach: without the note, a user has no
+        // way to discover that ":cd " and "cd /somewhere" behave differently.
+        var rendered = SettingsSchema.Render(Fjord.Commands.DefaultBindings.All);
+
+        Assert.Contains("starting with ':'", rendered, StringComparison.Ordinal);
+        Assert.Contains("{name}", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AModeWithNoBindingsDoesNotCrashTheLoader()
     {
         // "normal:" with nothing under it is valid YAML that deserializes to null, and is
