@@ -20,6 +20,12 @@
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Avalonia.Fonts.Inter" />
+    <!--
+      The abstractions plus LoggerFactory, and nothing else. Not Logging.Console: it drags
+      Configuration, Options and a formatter stack in to write to a console a WinExe has not
+      got. The rolling-file provider under Logging/ is the only one shipped.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="AvaloniaUI.DiagnosticsSupport">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>

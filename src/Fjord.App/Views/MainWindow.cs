@@ -14,6 +14,8 @@ using Fjord.Config;
 using Fjord.Core.Diagnostics;
 using Fjord.Core.FileSystem;
 using Fjord.Core.Input;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Fjord.App.Views;
 
@@ -48,14 +50,24 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
+    private readonly ILogger _log;
 
     private FjordConfig _config;
     private string? _message;
     private MessageLevel _messageLevel;
 
-    public MainWindow(FjordPaths paths, ConfigLoadResult initial, IDirectoryLister lister)
+    /// <param name="logging">
+    /// Hands each collaborator its own category. Optional so a test can build a window
+    /// without one, and so a failure to open the log file cannot stop the app starting.
+    /// </param>
+    public MainWindow(
+        FjordPaths paths,
+        ConfigLoadResult initial,
+        IDirectoryLister lister,
+        ILoggerFactory? logging = null)
     {
         _paths = paths;
+        _log = logging?.CreateLogger<MainWindow>() ?? (ILogger)NullLogger.Instance;
         _config = initial.Config;
         _message = initial.Error;
         _messageLevel = initial.Error is null ? MessageLevel.Info : MessageLevel.Error;
@@ -72,7 +84,12 @@ public sealed class MainWindow : Window, IMessageSink
         // Panes are created on demand so every tab gets its own snapshot and its own
         // cancellation source; that is what keeps a tab switch from waiting on anything.
         _workspace = new Workspace(
-            () => new PaneController(lister, _list, _config.ToSortSpec(), _config.ToFilterSpec()),
+            () => new PaneController(
+                lister,
+                _list,
+                _config.ToSortSpec(),
+                _config.ToFilterSpec(),
+                logging?.CreateLogger<PaneController>()),
             () => (Application.Current?.ApplicationLifetime
                 as IClassicDesktopStyleApplicationLifetime)?.Shutdown());
 
@@ -80,7 +97,8 @@ public sealed class MainWindow : Window, IMessageSink
         _modeRegistry = new KeyModeRegistry();
 
         var platform = Fjord.Platform.PlatformServices.Create();
-        _operations = new OperationHost(Fjord.Platform.TrashServices.Create());
+        _operations = new OperationHost(
+            Fjord.Platform.TrashServices.Create(), logging?.CreateLogger<OperationHost>());
         _taskPanel = new TaskPanel(_theme);
         _help = new HelpOverlay(_theme);
 
@@ -218,6 +236,7 @@ public sealed class MainWindow : Window, IMessageSink
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             // Hot reload is a convenience; losing it must not stop the app starting.
+            _log.LogWarning(ex, "config watch unavailable");
             _message ??= $"config watch unavailable: {ex.Message}";
         }
 
@@ -454,12 +473,14 @@ public sealed class MainWindow : Window, IMessageSink
 
         if (!result.Succeeded)
         {
+            _log.LogWarning("config reload rejected, keeping the previous settings: {Error}", result.Error);
             _message = result.Error;
             _messageLevel = MessageLevel.Error;
             UpdateChrome();
             return result.Error;
         }
 
+        _log.LogInformation("config reloaded from {Path}", _paths.ConfigFile);
         _config = result.Config;
         _message = null;
 

@@ -19,6 +19,8 @@ public sealed class FjordConfig
 
     public ListingConfig Listing { get; set; } = new();
 
+    public LoggingConfig Logging { get; set; } = new();
+
     /// <summary>
     /// Key bindings, as <c>mode -&gt; keys -&gt; command</c>.
     /// </summary>
@@ -86,6 +88,22 @@ public sealed class ColorsConfig
     public string Broken { get; set; } = "#E07B7B";
 
     public string Muted { get; set; } = "#7E8692";
+}
+
+/// <summary>
+/// What gets written to the log file, and how much of it is kept.
+/// </summary>
+/// <remarks>
+/// Read once at startup. Changing the level is one of the few settings a reload cannot
+/// apply, because the provider owns an open file handle.
+/// </remarks>
+public sealed class LoggingConfig
+{
+    /// <summary>Minimum level recorded. <c>off</c> writes no file at all.</summary>
+    public string Level { get; set; } = "information";
+
+    /// <summary>Generations kept, including the current file.</summary>
+    public int MaxFiles { get; set; } = 3;
 }
 
 public sealed class ListingConfig

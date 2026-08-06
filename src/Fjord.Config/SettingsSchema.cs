@@ -55,6 +55,12 @@ public static class SettingsSchema
         new("listing.show_hidden", "true | false", "false",
             "Show dotfiles and entries carrying the hidden attribute."),
 
+        new("logging.level", "off | error | warning | information | debug | trace", "information",
+            "How much is written to the log file. Read at startup only, and off writes no "
+            + "file at all. Run :config-path to find the directory."),
+        new("logging.max_files", "number", "3",
+            "Log generations kept, including the current file. Each rolls at 1 MB."),
+
         new("bindings", "mode -> keys -> command", "{}",
             "Key bindings, layered over the defaults. Every key MUST be quoted: YAML reads "
             + "bare n, y, on, off, yes and no as booleans."),

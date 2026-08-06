@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using Avalonia.Threading;
 using Fjord.App.Views;
 using Fjord.Core.FileSystem;
 using Fjord.Core.Navigation;
 using Fjord.Core.Panes;
 using Fjord.Core.Selection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Fjord.App;
 
@@ -20,6 +23,7 @@ public sealed class PaneController : IPane
 {
     private readonly IDirectoryLister _lister;
     private readonly FileListView _list;
+    private readonly ILogger _log;
 
     private CancellationTokenSource? _navigation;
 
@@ -34,10 +38,15 @@ public sealed class PaneController : IPane
     private bool _isActive;
 
     public PaneController(
-        IDirectoryLister lister, FileListView list, SortSpec? sort = null, FilterSpec? filter = null)
+        IDirectoryLister lister,
+        FileListView list,
+        SortSpec? sort = null,
+        FilterSpec? filter = null,
+        ILogger? log = null)
     {
         _lister = lister;
         _list = list;
+        _log = log ?? NullLogger.Instance;
         Sort = sort ?? SortSpec.Default;
         Filter = filter ?? FilterSpec.Default;
     }
@@ -333,11 +342,29 @@ public sealed class PaneController : IPane
         var options = ListingOptions.For(Sort, Filter, sizeColumnVisible: true, modifiedColumnVisible: true);
         var cursorPlaced = selectName is null;
 
+        // Wall clock rather than a count of entries: the number that matters is how long
+        // the user waited, and on a network mount the two are unrelated.
+        var clock = Stopwatch.StartNew();
+        var batches = 0;
+        var entries = 0;
+
         try
         {
             await foreach (var batch in _lister.ListAsync(snapshot.Directory, options, ct).ConfigureAwait(true))
             {
                 snapshot.Append(batch.Span);
+
+                batches++;
+                entries += batch.Length;
+
+                // Per batch, never per entry. A LogTrace in the transform would make a
+                // 100,000-entry directory take the better part of a minute.
+                _log.LogDebug(
+                    "batch {Batch} of {Directory}: {Count} entries, {Elapsed} ms in",
+                    batches,
+                    snapshot.Directory,
+                    batch.Length,
+                    clock.ElapsedMilliseconds);
 
                 // One coalesced repaint per batch, and none at all for a background tab:
                 // it keeps loading into its own snapshot and is simply not on screen.
@@ -353,15 +380,27 @@ public sealed class PaneController : IPane
             }
 
             snapshot.Complete();
+
+            _log.LogInformation(
+                "listed {Directory}: {Entries} entries in {Elapsed} ms",
+                snapshot.Directory,
+                entries,
+                clock.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
             // Navigated away. The snapshot is discarded with the pane's old state.
+            _log.LogDebug(
+                "abandoned {Directory} after {Entries} entries, {Elapsed} ms",
+                snapshot.Directory,
+                entries,
+                clock.ElapsedMilliseconds);
             return;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             snapshot.Complete(ex);
+            _log.LogWarning(ex, "could not list {Directory}", snapshot.Directory);
         }
 
         if (!ReferenceEquals(Snapshot, snapshot))

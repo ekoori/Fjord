@@ -2,6 +2,12 @@
 
   <ItemGroup>
     <PackageReference Include="YamlDotNet" />
+    <!--
+      Abstractions only. The rolling-file provider lives here rather than in Fjord.App
+      because this is the assembly that already knows where state belongs, and because
+      the test project references this one and not the app.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>

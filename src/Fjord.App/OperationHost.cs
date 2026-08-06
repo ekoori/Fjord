@@ -2,6 +2,8 @@ using Avalonia.Threading;
 using Fjord.Commands;
 using Fjord.Core.Operations;
 using Fjord.Operations;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Fjord.App;
 
@@ -41,16 +43,23 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
 {
     private readonly OperationQueue _queue;
     private readonly UndoStack _undo = new();
+    private readonly ILogger _log;
 
-    public OperationHost(ITrashService trash)
+    public OperationHost(ITrashService trash, ILogger? log = null)
     {
+        _log = log ?? NullLogger.Instance;
+
         // Duplicate and paste both land in a directory that may already hold the name, and
         // refusing would make the common case fail. Renaming alongside is the only policy
         // that neither loses data nor stops the user.
         _queue = new OperationQueue(trash, _ => ConflictResolution.Rename);
 
         _queue.Completed += (_, operation) => Post(() => _undo.Push(operation));
-        _queue.Changed += (_, handle) => Post(() => Changed?.Invoke(this, handle));
+        _queue.Changed += (_, handle) => Post(() =>
+        {
+            Record(handle);
+            Changed?.Invoke(this, handle);
+        });
     }
 
     /// <summary>Raised on the UI thread whenever an operation is queued, progresses or ends.</summary>
@@ -117,6 +126,39 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
     /// operation ending — rather than per item — keeps a bulk copy from re-reading the
     /// directory hundreds of times.
     /// </remarks>
+    /// <summary>
+    /// Writes one line per operation state change.
+    /// </summary>
+    /// <remarks>
+    /// This is the log that matters: everything here moved or removed the user's files, and
+    /// a failure that only ever appeared in the status bar for three seconds is the one they
+    /// will ask about afterwards. Failures carry the exception; the rest are Information.
+    /// </remarks>
+    private void Record(OperationHandle handle)
+    {
+        switch (handle.State)
+        {
+            case OperationState.Running:
+                _log.LogInformation("running {Operation}", handle.Operation.Description);
+                break;
+
+            case OperationState.Completed:
+                _log.LogInformation("completed {Operation}", handle.Operation.Description);
+                break;
+
+            case OperationState.Cancelled:
+                _log.LogInformation("cancelled {Operation}", handle.Operation.Description);
+                break;
+
+            case OperationState.Failed:
+                _log.LogError(handle.Error, "failed {Operation}", handle.Operation.Description);
+                break;
+
+            default:
+                break;
+        }
+    }
+
     private void WatchForSettle(OperationHandle handle)
     {
         void OnChanged(object? sender, OperationHandle changed)

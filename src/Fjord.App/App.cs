@@ -1,9 +1,12 @@
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
+using Fjord.App.Logging;
 using Fjord.App.Views;
 using Fjord.Config;
 using Fjord.Core.FileSystem;
+using Microsoft.Extensions.Logging;
 
 namespace Fjord.App;
 
@@ -22,6 +25,8 @@ namespace Fjord.App;
 /// </remarks>
 public sealed class App : Application
 {
+    private ILoggerFactory? _logging;
+
     public override void Initialize() => Styles.Add(new FluentTheme());
 
     public override void OnFrameworkInitializationCompleted()
@@ -34,11 +39,45 @@ public sealed class App : Application
             // and read rather than an empty file and a wiki page.
             TryWriteDefaultConfig(paths);
 
-            desktop.MainWindow = new MainWindow(
-                paths, ConfigFile.Load(paths.ConfigFile), new DirectoryLister());
+            var initial = ConfigFile.Load(paths.ConfigFile);
+
+            _logging = FjordLog.Create(paths, initial.Config.Logging);
+            var log = _logging.CreateLogger<App>();
+            LogStartup(log, paths, initial);
+
+            // Flushing matters less than it looks, since the provider flushes every record,
+            // but the file handle should not outlive the app that owns it.
+            desktop.Exit += (_, _) => _logging?.Dispose();
+
+            desktop.MainWindow = new MainWindow(paths, initial, new DirectoryLister(), _logging);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static void LogStartup(ILogger log, FjordPaths paths, ConfigLoadResult initial)
+    {
+        var version = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? "unknown";
+
+        log.LogInformation(
+            "Fjord {Version} starting on {Platform}, .NET {Runtime}",
+            version,
+            Environment.OSVersion.VersionString,
+            Environment.Version);
+
+        log.LogInformation(
+            "config {Config}, data {Data}, cache {Cache}, logs {State}",
+            paths.Config,
+            paths.Data,
+            paths.Cache,
+            paths.State);
+
+        if (initial.Error is { } error)
+        {
+            log.LogWarning("config could not be parsed, running on defaults: {Error}", error);
+        }
     }
 
     private static void TryWriteDefaultConfig(FjordPaths paths)
