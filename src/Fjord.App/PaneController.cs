@@ -184,8 +184,26 @@ public sealed class PaneController : IPane
     public string? PathAt(int row)
     {
         var view = Snapshot?.View ?? default;
-        return row >= 0 && row < view.Count ? Path.Combine(Directory, view[row].Name) : null;
+
+        if (row < 0 || row >= view.Count)
+        {
+            return null;
+        }
+
+        var path = Path.Combine(Directory, view[row].Name);
+
+        if (!PathSafety.IsAddressable(path))
+        {
+            _log.LogWarning(
+                "{Name} in {Directory} cannot be addressed on this platform and was skipped",
+                view[row].Name,
+                Directory);
+            return null;
+        }
+
+        return path;
     }
+
 
     Task IPane.NavigateAsync(string directory, string? selectName) => NavigateAsync(directory, selectName);
 

@@ -4,4 +4,13 @@
     <ProjectReference Include="..\Fjord.Core\Fjord.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      UnixMounts.Abbreviate takes the home directory as a parameter precisely so it can be
+      tested against one that is not this machine's. Widening it to public to say that would
+      put a helper nothing else calls into the assembly's API.
+    -->
+    <InternalsVisibleTo Include="Fjord.Tests" />
+  </ItemGroup>
+
 </Project>

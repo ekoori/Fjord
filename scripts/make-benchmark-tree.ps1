@@ -43,7 +43,12 @@ function Test-AlreadyBuilt {
     }
 
     Write-Host ("  {0,-16} rebuilding ({1:N0} -> {2:N0})" -f (Split-Path $Path -Leaf), $actual, $Expected)
-    [System.IO.Directory]::Delete($Path, $true)
+
+    # \\?\ for the same reason the writers use it: the unicode tree deliberately contains
+    # names that push the full path past MAX_PATH, and Windows PowerShell 5.1 is not long
+    # path aware. Deleting without the prefix fails on exactly the tree that most needs
+    # rebuilding, and leaves it half-removed so every later run fails too.
+    [System.IO.Directory]::Delete("\\?\$Path", $true)
     return $false
 }
 
@@ -113,7 +118,11 @@ function New-UnicodeTree {
         'combining-é-vs-é.txt',
         'ligature-ﬁle-ﬀ.txt',
         ('very-long-' + ('name' * 55) + '.txt'),
-        ('日本語' * 80 + '.txt'),
+        # 27 repetitions, not more. NTFS allows 255 UTF-16 units so 80 would fit here, but
+        # Linux allows 255 *bytes* and each of these characters is three of them — at 80 the
+        # Unix twin cannot create the file, and the tree stops being idempotent there. Still
+        # 81 characters of wide glyphs, which is what the text layout is being stressed with.
+        ('日本語' * 27 + '.txt'),
         'spaces   and   runs.txt',
         # Doubled quote is PowerShell's escape inside a single-quoted string. A literal
         # '"' is deliberately absent: it is a legal Linux filename character but illegal
