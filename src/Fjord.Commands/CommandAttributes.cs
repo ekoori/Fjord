@@ -156,4 +156,16 @@ public enum CompletionKind
 
     /// <summary>Setting names, as <c>:set</c> wants.</summary>
     Setting,
+
+    /// <summary>Quickmark names only.</summary>
+    Quickmark,
+
+    /// <summary>
+    /// Somewhere to go: quickmarks and recent directories first, then real directories.
+    /// </summary>
+    /// <remarks>
+    /// What <c>:cd</c> takes. The three share one namespace on purpose — the places you
+    /// return to should not need a different command from the places you have not been.
+    /// </remarks>
+    Destination,
 }

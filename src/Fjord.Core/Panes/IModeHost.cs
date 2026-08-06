@@ -1,16 +1,15 @@
 namespace Fjord.Core.Panes;
 
 /// <summary>What the next keystroke names.</summary>
+/// <remarks>
+/// Only registers read a bare keystroke now. Quickmarks used to as well, and became words
+/// typed on the command line instead: a name worth keeping for weeks is worth more than a
+/// letter worth remembering for a minute.
+/// </remarks>
 public enum NameTarget
 {
     /// <summary>The register the following command should use, as <c>"</c> does.</summary>
     Register,
-
-    /// <summary>The mark to set here, as <c>m</c> does.</summary>
-    MarkToSet,
-
-    /// <summary>The mark to jump to, as <c>'</c> does.</summary>
-    MarkToVisit,
 }
 
 /// <summary>

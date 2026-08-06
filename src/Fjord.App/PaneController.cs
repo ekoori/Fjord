@@ -27,6 +27,10 @@ public sealed class PaneController : IPane
 
     private CancellationTokenSource? _navigation;
 
+    // Where a virtual listing was opened from, and null the rest of the time — which is
+    // also how the pane knows it is showing one.
+    private (string Directory, string? CursorName)? _leftBehind;
+
     // State held while this pane is not the one on screen. One FileListView serves every
     // tab, so an inactive pane cannot leave its cursor and selection there; it keeps them
     // here and hands them back on activation. That is what makes switching tabs a pointer
@@ -204,7 +208,6 @@ public sealed class PaneController : IPane
         return path;
     }
 
-
     Task IPane.NavigateAsync(string directory, string? selectName) => NavigateAsync(directory, selectName);
 
     /// <summary>Raised whenever the pane's state changed enough for a status line to care.</summary>
@@ -220,6 +223,10 @@ public sealed class PaneController : IPane
     public async Task NavigateAsync(string directory, string? selectName = null, bool recordHistory = true)
     {
         var full = Path.GetFullPath(directory);
+
+        // Navigating anywhere real ends the virtual listing, so entering a scrapbook item's
+        // folder does not leave the pane thinking it is still in the scrapbook.
+        _leftBehind = null;
 
         if (recordHistory)
         {
@@ -279,6 +286,11 @@ public sealed class PaneController : IPane
     {
         ArgumentNullException.ThrowIfNull(paths);
 
+        // Remembered before the snapshot is replaced, so Escape has somewhere to go back
+        // to. Not pushed onto history: a scrapbook is a view of the pane, not a place, and
+        // leaving it should return you to where you were rather than one step further back.
+        _leftBehind ??= (Directory, CurrentCursorName());
+
         var previous = _navigation;
         _navigation = null;
 
@@ -301,6 +313,27 @@ public sealed class PaneController : IPane
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool IsVirtual => _leftBehind is not null;
+
+    /// <summary>
+    /// Returns to the directory a virtual listing was opened from.
+    /// </summary>
+    /// <remarks>
+    /// Bound to Escape as well as to the keys that go up, because a scrapbook looks like a
+    /// listing and every instinct for getting out of one should work.
+    /// </remarks>
+    public async Task<bool> LeaveVirtualAsync()
+    {
+        if (_leftBehind is not { } origin)
+        {
+            return false;
+        }
+
+        _leftBehind = null;
+        await NavigateAsync(origin.Directory, origin.CursorName, recordHistory: false).ConfigureAwait(true);
+        return true;
     }
 
     /// <summary>Re-lists the current directory, keeping the cursor where it was.</summary>

@@ -75,8 +75,8 @@ public interface IStorage
     /// writing them together means the file on disk always reflects a state the app was
     /// actually in — no half-applied clear.
     /// </remarks>
-    void SaveMarks(IReadOnlyDictionary<char, Navigation.Mark> marks);
+    void SaveMarks(IReadOnlyDictionary<string, Navigation.Mark> marks);
 
     /// <summary>Marks from the last session.</summary>
-    IReadOnlyDictionary<char, Navigation.Mark> LoadMarks();
+    IReadOnlyDictionary<string, Navigation.Mark> LoadMarks();
 }

@@ -8,50 +8,76 @@ namespace Fjord.Core.Navigation;
 public readonly record struct Mark(string Directory, string? CursorName);
 
 /// <summary>
-/// Places remembered under a single character, set with <c>m</c> and returned to with
-/// <c>'</c>.
+/// Directories remembered under a name, set with <c>:mark-set</c> and returned to with
+/// <c>:cd</c>.
 /// </summary>
 /// <remarks>
-/// The file-manager reading of a vim mark. In an editor a mark is a position in a buffer;
-/// here the buffer is the filesystem, so a mark is a directory — which makes it the fast
-/// way back to the three or four places a piece of work keeps returning to, without
-/// spending a bookmark on something you will not want tomorrow.
+/// Named rather than keyed to a single character. A single letter is the vim spelling and
+/// it suits a mark you set, jump from and forget within a minute — but these are the three
+/// or four places a piece of work keeps returning to, kept for weeks, and <c>work</c> is
+/// worth typing where <c>w</c> has to be remembered.
 /// <para>
-/// Marks are session state, not settings. They live in the session database next to the
-/// open tabs rather than in <c>config.yaml</c>, because they record where you have been
-/// rather than how you want the app to behave.
+/// It also lets them share a namespace with directories: <c>:cd work</c> tries the
+/// quickmarks first and a real path second, so one command covers both and neither needs
+/// its own key.
+/// </para>
+/// <para>
+/// These are session state rather than settings. They live in the session database next to
+/// the open tabs, because they record where you have been rather than how you want the app
+/// to behave.
 /// </para>
 /// </remarks>
 public sealed class MarkFile
 {
-    private readonly Dictionary<char, Mark> _marks = [];
+    private readonly Dictionary<string, Mark> _marks = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Marks set, in name order.</summary>
-    public IReadOnlyList<char> Names => [.. _marks.Keys.OrderBy(name => name)];
+    public IReadOnlyList<string> Names => [.. _marks.Keys.OrderBy(name => name, StringComparer.Ordinal)];
 
-    /// <summary>Reads a mark, or null when that character holds nothing.</summary>
-    public Mark? Get(char name) => _marks.TryGetValue(name, out var mark) ? mark : null;
+    /// <summary>Reads a mark, or null when nothing is stored under that name.</summary>
+    public Mark? Get(string name) =>
+        !string.IsNullOrEmpty(name) && _marks.TryGetValue(name, out var mark) ? mark : null;
 
     /// <summary>
-    /// Sets a mark, replacing whatever that character held.
+    /// Whether a name is usable as a quickmark.
     /// </summary>
     /// <remarks>
-    /// Silently replacing is the vim behaviour and the right one: a mark is a scratch
-    /// position, and a confirmation prompt on every <c>ma</c> would make them not worth
-    /// using.
+    /// One word, no separators. A name containing a slash or a dot would be ambiguous with
+    /// the path <c>:cd</c> falls back to, and a quickmark that shadowed <c>..</c> would be
+    /// a trap the user set for themselves without meaning to.
     /// </remarks>
-    public void Set(char name, string directory, string? cursorName = null)
+    public static bool IsValidName(string? name) =>
+        !string.IsNullOrWhiteSpace(name)
+        && name.All(c => char.IsLetterOrDigit(c) || c is '-' or '_')
+        && !name.All(char.IsDigit);
+
+    /// <summary>
+    /// Sets a mark, replacing whatever that name held.
+    /// </summary>
+    /// <remarks>
+    /// Silently replacing is the vim behaviour and the right one here too: re-marking a
+    /// place you have moved is the common case, and a confirmation prompt on every one
+    /// would make marks not worth setting.
+    /// </remarks>
+    public void Set(string name, string directory, string? cursorName = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(directory);
+
+        if (!IsValidName(name))
+        {
+            throw new ArgumentException(
+                "A quickmark name is one word of letters, digits, - or _.", nameof(name));
+        }
+
         _marks[name] = new Mark(directory, cursorName);
     }
 
     /// <summary>Forgets one mark, or every mark when no name is given.</summary>
-    public void Clear(char? name = null)
+    public void Clear(string? name = null)
     {
-        if (name is { } one)
+        if (name is { Length: > 0 })
         {
-            _marks.Remove(one);
+            _marks.Remove(name);
         }
         else
         {
@@ -60,7 +86,7 @@ public sealed class MarkFile
     }
 
     /// <summary>Replaces the whole set, as restoring a session does.</summary>
-    public void Load(IEnumerable<KeyValuePair<char, Mark>> marks)
+    public void Load(IEnumerable<KeyValuePair<string, Mark>> marks)
     {
         ArgumentNullException.ThrowIfNull(marks);
 
@@ -73,5 +99,5 @@ public sealed class MarkFile
     }
 
     /// <summary>Every mark, for saving.</summary>
-    public IReadOnlyDictionary<char, Mark> All => _marks;
+    public IReadOnlyDictionary<string, Mark> All => _marks;
 }

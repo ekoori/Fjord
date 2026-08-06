@@ -86,9 +86,24 @@ public sealed class CommandLine : Border
 
         _input.TextChanged += (_, _) =>
         {
-            if (!_settingText)
+            if (_settingText)
             {
-                _history.Reset();
+                return;
+            }
+
+            _history.Reset();
+
+            // While the list is up, typing narrows it rather than dismissing it — that is
+            // what makes ":cd " a picker you can filter. When it is not up, typing does not
+            // summon it: completing every keystroke of every command would mean a directory
+            // enumeration per character.
+            if (_completionHost.IsVisible)
+            {
+                HideCompletions();
+                OfferCompletions();
+            }
+            else
+            {
                 HideCompletions();
             }
         };
@@ -139,8 +154,19 @@ public sealed class CommandLine : Border
 
     public bool IsOpen => IsVisible;
 
+    /// <summary>
+    /// Opens the command line holding <paramref name="initial"/>.
+    /// </summary>
+    /// <remarks>
+    /// Text ending in a space shows its candidates straight away. That is the difference
+    /// between <c>c</c> opening <c>:cd </c> and the user having to guess whether there is
+    /// anything to Tab through: a binding that ends mid-command is asking a question, so
+    /// the answers should already be on screen.
+    /// </remarks>
     public void Open(string initial)
     {
+        ArgumentNullException.ThrowIfNull(initial);
+
         _settingText = true;
         _input.Text = initial;
         _settingText = false;
@@ -151,6 +177,28 @@ public sealed class CommandLine : Border
 
         _input.Focus();
         _input.CaretIndex = initial.Length;
+
+        if (initial.EndsWith(' '))
+        {
+            OfferCompletions();
+        }
+    }
+
+    /// <summary>Shows what could come next, without inserting any of it.</summary>
+    private void OfferCompletions()
+    {
+        _cycleOrigin = _input.Text ?? string.Empty;
+        _result = _engine.Complete(_cycleOrigin, _input.CaretIndex);
+
+        if (_result.IsEmpty)
+        {
+            return;
+        }
+
+        // Listed but not selected: Tab still picks the first, and typing narrows instead of
+        // fighting a candidate that was inserted without being asked for.
+        ShowCompletions();
+        _selected = -1;
     }
 
     public void Close()

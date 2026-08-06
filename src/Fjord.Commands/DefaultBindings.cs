@@ -51,8 +51,11 @@ public static class DefaultBindings
                 ["~"] = "go-home",
                 ["o"] = "open-with-default",
                 ["R"] = "reveal",
-                ["<Ctrl+o>"] = "back",
-                ["<Ctrl+i>"] = "forward",
+                // Ctrl-h/Ctrl-l rather than vim's Ctrl-o/Ctrl-i: h and l already mean
+                // "out" and "in" here, so held with Ctrl they mean the same thing through
+                // history. Ctrl-o and Ctrl-i are a jump list, which this is not.
+                ["<Ctrl+h>"] = "back",
+                ["<Ctrl+l>"] = "forward",
                 ["<Back>"] = "back",
                 ["<Forward>"] = "forward",
 
@@ -77,9 +80,10 @@ public static class DefaultBindings
                 ["<Ctrl+Shift+t>"] = "tab-undo-close",
 
                 // Search. Escape already clears the selection; it clears the filter too,
-                // which is the more urgent of the two when one is active.
+                // which is the more urgent of the two when one is active. The explicit key
+                // is shifted because Ctrl-l is history-forward.
                 ["/"] = "search-open",
-                ["<Ctrl+l>"] = "search-clear",
+                ["<Ctrl+Shift+l>"] = "search-clear",
 
                 // Scrapbook. "s" is taken by sort, so the collect verb gets "S".
                 ["S"] = "scrap-add",
@@ -93,12 +97,16 @@ public static class DefaultBindings
                 ["v"] = "visual-mode",
                 [":"] = "command-mode",
 
-                // Each of these reads the next keystroke as a name rather than a binding.
-                // They are commands rather than characters wired into the key handler, so
-                // they can be moved like anything else.
+                // Reads the next keystroke as a register name rather than as a binding.
                 ["\""] = "register-select",
-                ["m"] = "mark-set",
-                ["'"] = "mark-visit",
+
+                // Command-line starting points. The leading ':' is what makes these open
+                // the command line rather than run: the user finishes the line. {name}
+                // arrives already quoted, so a filename with spaces stays one argument.
+                ["<F2>"] = ":rename {name}",
+                ["c"] = ":cd ",
+                ["m"] = ":mark-set ",
+                ["'"] = ":cd ",
 
                 // Operators. These wait for a motion; the mode manager does not dispatch
                 // them on sight.

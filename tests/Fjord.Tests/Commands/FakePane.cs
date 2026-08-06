@@ -103,6 +103,21 @@ public sealed class FakePane : IPane
         return Task.CompletedTask;
     }
 
+    /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
+    public bool IsVirtual { get; set; }
+
+    public Task<bool> LeaveVirtualAsync()
+    {
+        if (!IsVirtual)
+        {
+            return Task.FromResult(false);
+        }
+
+        Log.Add("leave-virtual");
+        IsVirtual = false;
+        return Task.FromResult(true);
+    }
+
     public Task BackAsync(int count = 1)
     {
         Log.Add($"back:{count}");

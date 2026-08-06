@@ -205,18 +205,18 @@ public class SqliteStorageTests : IDisposable
     [Fact]
     public void MarksRoundTrip()
     {
-        _storage.SaveMarks(new Dictionary<char, Mark>
+        _storage.SaveMarks(new Dictionary<string, Mark>
         {
-            ['p'] = new("/home/igor/projects", "fjord"),
-            ['d'] = new("/downloads", null),
+            ["projects"] = new("/home/igor/projects", "fjord"),
+            ["downloads"] = new("/downloads", null),
         });
 
         var marks = _storage.LoadMarks();
 
         Assert.Equal(2, marks.Count);
-        Assert.Equal("/home/igor/projects", marks['p'].Directory);
-        Assert.Equal("fjord", marks['p'].CursorName);
-        Assert.Null(marks['d'].CursorName);
+        Assert.Equal("/home/igor/projects", marks["projects"].Directory);
+        Assert.Equal("fjord", marks["projects"].CursorName);
+        Assert.Null(marks["downloads"].CursorName);
     }
 
     [Fact]
@@ -224,28 +224,30 @@ public class SqliteStorageTests : IDisposable
     {
         // Not a merge. Clearing a mark in the app has to actually clear it on disk, or it
         // comes back on the next launch.
-        _storage.SaveMarks(new Dictionary<char, Mark> { ['a'] = new("/first", null) });
-        _storage.SaveMarks(new Dictionary<char, Mark> { ['b'] = new("/second", null) });
+        _storage.SaveMarks(new Dictionary<string, Mark> { ["alpha"] = new("/first", null) });
+        _storage.SaveMarks(new Dictionary<string, Mark> { ["beta"] = new("/second", null) });
 
         var marks = _storage.LoadMarks();
 
-        Assert.False(marks.ContainsKey('a'));
-        Assert.Equal("/second", marks['b'].Directory);
+        Assert.False(marks.ContainsKey("alpha"));
+        Assert.Equal("/second", marks["beta"].Directory);
     }
 
     [Fact]
-    public void CaseIsSignificantInAMarkName()
+    public void AMarkNameTheAppWouldRejectIsNotLoaded()
     {
-        _storage.SaveMarks(new Dictionary<char, Mark>
+        // The database is a file on disk and hand-editing it is normal. A name :cd could
+        // never match would be a quickmark the user can see listed and never reach.
+        _storage.SaveMarks(new Dictionary<string, Mark>
         {
-            ['a'] = new("/lower", null),
-            ['A'] = new("/upper", null),
+            ["good"] = new("/kept", null),
+            ["two words"] = new("/dropped", null),
         });
 
         var marks = _storage.LoadMarks();
 
-        Assert.Equal("/lower", marks['a'].Directory);
-        Assert.Equal("/upper", marks['A'].Directory);
+        Assert.True(marks.ContainsKey("good"));
+        Assert.False(marks.ContainsKey("two words"));
     }
 
     [Fact]
@@ -284,9 +286,9 @@ public class SqliteStorageTests : IDisposable
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
         using var upgraded = new SqliteStorage(path);
-        upgraded.SaveMarks(new Dictionary<char, Mark> { ['a'] = new("/kept", null) });
+        upgraded.SaveMarks(new Dictionary<string, Mark> { ["alpha"] = new("/kept", null) });
 
-        Assert.Equal("/kept", upgraded.LoadMarks()['a'].Directory);
+        Assert.Equal("/kept", upgraded.LoadMarks()["alpha"].Directory);
     }
 
     [Fact]

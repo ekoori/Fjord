@@ -51,6 +51,10 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
     private readonly ConfigService _configService;
+
+    // Built before the input controller, because :cd needs it and the controller is wired
+    // late. The controller uses this same instance rather than owning one.
+    private readonly Fjord.Core.Navigation.MarkFile _marks = new();
     private readonly ILogger _log;
 
     private FjordConfig _config;
@@ -106,7 +110,7 @@ public sealed class MainWindow : Window, IMessageSink
         _configService = new ConfigService(_paths, ReloadConfig);
 
         var registry = new CommandRegistry();
-        registry.Register(new NavigationCommands(platform));
+        registry.Register(new NavigationCommands(platform, _marks));
         registry.Register(new PlatformCommands(platform));
         registry.Register(new OperationCommands(_operations, new FileOperationFactory()));
         registry.Register(new HelpCommands(
@@ -131,7 +135,10 @@ public sealed class MainWindow : Window, IMessageSink
             new OperatorDispatcher(parser, registry),
             this,
             () => _workspace.ActivePane,
-            () => _workspace);
+            () => _workspace)
+        {
+            Marks = _marks,
+        };
         _input = controller;
 
         registry.Register(new ModeCommands(controller));
@@ -148,7 +155,8 @@ public sealed class MainWindow : Window, IMessageSink
             new CompletionEngine(
                 registry,
                 new PathCompletionSource(() => _workspace.ActivePane),
-                SettingCompletions));
+                SettingCompletions,
+                new DestinationSource(_marks, _storage)));
 
         DefaultBindings.Load(_bindings, _modeRegistry);
         ApplyUserBindings();
@@ -380,7 +388,7 @@ public sealed class MainWindow : Window, IMessageSink
         {
             // Marks before tabs: they are what the restored window navigates by, and they
             // cost one small query whether or not there is a session to go with them.
-            _input.Marks.Load(_storage.LoadMarks());
+            _marks.Load(_storage.LoadMarks());
 
             if (_storage.LoadSession(Core.Storage.SavedSession.DefaultName) is { Tabs.Count: > 0 } session)
             {
@@ -403,7 +411,7 @@ public sealed class MainWindow : Window, IMessageSink
         try
         {
             _storage.SaveSession(_sessions.Capture(Core.Storage.SavedSession.DefaultName));
-            _storage.SaveMarks(_input.Marks.All);
+            _storage.SaveMarks(_marks.All);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException)
         {

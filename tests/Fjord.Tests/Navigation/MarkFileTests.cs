@@ -7,7 +7,7 @@ public class MarkFileTests
     [Fact]
     public void AnUnsetMarkReadsAsNull()
     {
-        Assert.Null(new MarkFile().Get('a'));
+        Assert.Null(new MarkFile().Get("nothing"));
         Assert.Empty(new MarkFile().Names);
     }
 
@@ -15,9 +15,9 @@ public class MarkFileTests
     public void AMarkRemembersTheDirectoryAndTheCursor()
     {
         var marks = new MarkFile();
-        marks.Set('p', "/home/igor/projects", "fjord");
+        marks.Set("projects", "/home/igor/projects", "fjord");
 
-        var mark = marks.Get('p');
+        var mark = marks.Get("projects");
 
         Assert.NotNull(mark);
         Assert.Equal("/home/igor/projects", mark!.Value.Directory);
@@ -27,13 +27,13 @@ public class MarkFileTests
     [Fact]
     public void SettingTheSameNameReplacesIt()
     {
-        // Deliberately silent. A mark is a scratch position, and a prompt on every ma
-        // would make marks not worth using.
+        // Deliberately silent. Re-marking a place you have moved is the common case, and a
+        // prompt on every one would make quickmarks not worth setting.
         var marks = new MarkFile();
-        marks.Set('a', "/first");
-        marks.Set('a', "/second");
+        marks.Set("work", "/first");
+        marks.Set("work", "/second");
 
-        Assert.Equal("/second", marks.Get('a')!.Value.Directory);
+        Assert.Equal("/second", marks.Get("work")!.Value.Directory);
         Assert.Single(marks.Names);
     }
 
@@ -41,46 +41,74 @@ public class MarkFileTests
     public void MarksAreListedInNameOrder()
     {
         var marks = new MarkFile();
-        marks.Set('z', "/z");
-        marks.Set('a', "/a");
-        marks.Set('m', "/m");
+        marks.Set("zebra", "/z");
+        marks.Set("apple", "/a");
+        marks.Set("mango", "/m");
 
-        Assert.Equal(['a', 'm', 'z'], marks.Names);
+        Assert.Equal(["apple", "mango", "zebra"], marks.Names);
     }
 
     [Fact]
-    public void CaseIsSignificant()
+    public void NamesAreCaseInsensitive()
     {
-        // Unlike registers, which fold. Marks are cheap and there are only so many keys;
-        // a and A being different doubles the alphabet at no cost in confusion, because
-        // both are visible in the listing.
+        // ":cd Work" and ":cd work" are the same request. Two quickmarks differing only in
+        // case would be a trap the user set without meaning to.
         var marks = new MarkFile();
-        marks.Set('a', "/lower");
-        marks.Set('A', "/upper");
+        marks.Set("Work", "/work");
 
-        Assert.Equal("/lower", marks.Get('a')!.Value.Directory);
-        Assert.Equal("/upper", marks.Get('A')!.Value.Directory);
+        Assert.Equal("/work", marks.Get("work")!.Value.Directory);
+        Assert.Single(marks.Names);
     }
+
+    [Theory]
+    [InlineData("work")]
+    [InlineData("my-project")]
+    [InlineData("my_project")]
+    [InlineData("v2")]
+    public void OrdinaryWordsAreValidNames(string name) => Assert.True(MarkFile.IsValidName(name));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData(null)]
+    [InlineData("two words")]
+    [InlineData("src/nested")]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("~")]
+    [InlineData("C:")]
+    [InlineData("12")]
+    public void SomethingThatCouldBeAPathIsNot(string? name)
+    {
+        // The names share a namespace with directories, so a quickmark that could be read
+        // as a path would shadow it. "12" is excluded for a different reason: a bare number
+        // reads as a count everywhere else in the app.
+        Assert.False(MarkFile.IsValidName(name));
+    }
+
+    [Fact]
+    public void SettingAnInvalidNameIsRefused() =>
+        Assert.Throws<ArgumentException>(() => new MarkFile().Set("two words", "/somewhere"));
 
     [Fact]
     public void ClearingOneLeavesTheRest()
     {
         var marks = new MarkFile();
-        marks.Set('a', "/a");
-        marks.Set('b', "/b");
+        marks.Set("alpha", "/a");
+        marks.Set("beta", "/b");
 
-        marks.Clear('a');
+        marks.Clear("alpha");
 
-        Assert.Null(marks.Get('a'));
-        Assert.NotNull(marks.Get('b'));
+        Assert.Null(marks.Get("alpha"));
+        Assert.NotNull(marks.Get("beta"));
     }
 
     [Fact]
     public void ClearingWithoutANameForgetsEverything()
     {
         var marks = new MarkFile();
-        marks.Set('a', "/a");
-        marks.Set('b', "/b");
+        marks.Set("alpha", "/a");
+        marks.Set("beta", "/b");
 
         marks.Clear();
 
@@ -91,21 +119,21 @@ public class MarkFileTests
     public void LoadReplacesTheWholeSet()
     {
         var marks = new MarkFile();
-        marks.Set('x', "/stale");
+        marks.Set("stale", "/stale");
 
-        marks.Load(new Dictionary<char, Mark>
+        marks.Load(new Dictionary<string, Mark>
         {
-            ['a'] = new("/restored", "entry"),
+            ["restored"] = new("/restored", "entry"),
         });
 
-        Assert.Null(marks.Get('x'));
-        Assert.Equal("/restored", marks.Get('a')!.Value.Directory);
+        Assert.Null(marks.Get("stale"));
+        Assert.Equal("/restored", marks.Get("restored")!.Value.Directory);
     }
 
     [Fact]
     public void AMarkNeedsADirectory()
     {
-        // A mark pointing nowhere would fail at jump time, a long way from the mistake.
-        Assert.Throws<ArgumentException>(() => new MarkFile().Set('a', string.Empty));
+        // A mark pointing nowhere would fail at :cd time, a long way from the mistake.
+        Assert.Throws<ArgumentException>(() => new MarkFile().Set("here", string.Empty));
     }
 }

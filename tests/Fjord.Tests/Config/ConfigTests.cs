@@ -381,7 +381,7 @@ public class SettingsSchemaTests
 
         var undescribed = Fjord.Commands.DefaultBindings.All
             .SelectMany(mode => mode.Value.Values)
-            .Select(command => command.Split(' ')[0])
+            .Select(command => command.TrimStart(':').Split(' ')[0])
             .Where(name => string.IsNullOrEmpty(descriptions.GetValueOrDefault(name)))
             .Distinct(StringComparer.Ordinal)
             .ToList();

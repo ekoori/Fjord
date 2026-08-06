@@ -44,6 +44,25 @@ public sealed record CompletionResult(
     }
 }
 
+/// <summary>Somewhere the user has been, or named, offered ahead of the filesystem.</summary>
+/// <param name="Kind">Shown beside the name so a quickmark is distinguishable from a visit.</param>
+public sealed record Destination(string Name, string Path, string Kind);
+
+/// <summary>Quickmarks and recent directories, for <c>:cd</c>.</summary>
+/// <remarks>
+/// Separate from <see cref="IPathCompletionSource"/> because it is answered from the
+/// session database rather than from disk, and because a test can supply a handful of
+/// entries without either.
+/// </remarks>
+public interface IDestinationSource
+{
+    /// <summary>Named places, offered first.</summary>
+    IEnumerable<Destination> Quickmarks();
+
+    /// <summary>Directories visited recently, newest first.</summary>
+    IEnumerable<Destination> Recents();
+}
+
 /// <summary>Lists filesystem entries for path completion.</summary>
 /// <remarks>
 /// An interface so the engine stays testable without touching disk, and so the App can
@@ -73,6 +92,7 @@ public sealed class CompletionEngine
     private readonly CommandRegistry _registry;
     private readonly IPathCompletionSource? _paths;
     private readonly Func<IReadOnlyList<CompletionItem>>? _settings;
+    private readonly IDestinationSource? _destinations;
 
     /// <param name="settings">
     /// Setting names and their documentation. A delegate rather than a list because the
@@ -81,11 +101,13 @@ public sealed class CompletionEngine
     public CompletionEngine(
         CommandRegistry registry,
         IPathCompletionSource? paths = null,
-        Func<IReadOnlyList<CompletionItem>>? settings = null)
+        Func<IReadOnlyList<CompletionItem>>? settings = null,
+        IDestinationSource? destinations = null)
     {
         _registry = registry;
         _paths = paths;
         _settings = settings;
+        _destinations = destinations;
     }
 
     /// <summary>Completes the word ending at <paramref name="caret"/>.</summary>
@@ -163,8 +185,67 @@ public sealed class CompletionEngine
             CompletionKind.Path => CompletePath(word, directoriesOnly: false),
             CompletionKind.Directory => CompletePath(word, directoriesOnly: true),
             CompletionKind.Setting => CompleteSetting(word),
+            CompletionKind.Quickmark => CompleteQuickmark(word),
+            CompletionKind.Destination => CompleteDestination(word),
             _ => [],
         };
+    }
+
+    private List<CompletionItem> CompleteQuickmark(string word) =>
+        [.. (_destinations?.Quickmarks() ?? [])
+            .Where(d => d.Name.Contains(word, StringComparison.OrdinalIgnoreCase))
+            .Select(d => new CompletionItem(d.Name, d.Path))];
+
+    /// <summary>
+    /// Quickmarks, then recents, then whatever is on disk.
+    /// </summary>
+    /// <remarks>
+    /// Order is the whole feature. Somewhere you named and somewhere you were yesterday are
+    /// both better answers than the first alphabetical subdirectory, and putting them above
+    /// the filesystem is what turns <c>:cd</c> into a picker rather than a path prompt.
+    /// <para>
+    /// A word containing a separator is already a path, so the named entries are dropped:
+    /// once you are typing <c>src/</c> you have said what you want.
+    /// </para>
+    /// </remarks>
+    private List<CompletionItem> CompleteDestination(string word)
+    {
+        var items = new List<CompletionItem>();
+
+        if (word.IndexOfAny(['/', '\\']) < 0)
+        {
+            var quickmarks = (_destinations?.Quickmarks() ?? []).ToList();
+
+            var named = quickmarks
+                .Concat(_destinations?.Recents() ?? [])
+                .Where(d => d.Name.Contains(word, StringComparison.OrdinalIgnoreCase)
+                    || d.Path.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var destination in named)
+            {
+                // A recent directory that is also a quickmark is one place, and listing it
+                // twice would push a real second option off the panel.
+                if (!seen.Add(destination.Path))
+                {
+                    continue;
+                }
+
+                // A quickmark inserts its name, because that is what :cd resolves. A recent
+                // has no name to resolve, so it inserts its path and shows its last segment
+                // — insert the segment and ":cd" would look for a subdirectory of wherever
+                // the user happens to be standing.
+                var isMark = destination.Kind == "mark";
+
+                items.Add(isMark
+                    ? new CompletionItem(destination.Name, $"mark      {destination.Path}")
+                    : new CompletionItem(destination.Path, $"recent    {destination.Name}"));
+            }
+        }
+
+        items.AddRange(CompletePath(word, directoriesOnly: true));
+        return items;
     }
 
     private List<CompletionItem> CompleteSetting(string word) =>

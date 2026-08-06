@@ -1,4 +1,5 @@
 using Fjord.Core.Diagnostics;
+using Fjord.Core.Navigation;
 using Fjord.Core.Panes;
 
 namespace Fjord.Commands;
@@ -48,15 +49,44 @@ public sealed class ModeCommands
         Description = "Name the register the next command uses")]
     public void RegisterSelect() => _host.ReadName(NameTarget.Register);
 
-    [Command("mark-set", Group = "Navigation",
-        Description = "Remember this directory under the next key pressed")]
-    public void MarkSet() => _host.ReadName(NameTarget.MarkToSet);
+    /// <remarks>
+    /// Bound to <c>m</c> as <c>:mark-set </c>, so the key opens the command line and the
+    /// name is typed as a word. Defaulting the name to the directory's own last segment
+    /// makes the common case a single extra keystroke: <c>m</c> then Enter.
+    /// </remarks>
+    [Command("mark-set", Aliases = ["mark"], Group = "Navigation",
+        Description = "Remember this directory under a name you can :cd to")]
+    public void MarkSet(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
 
-    [Command("mark-visit", Group = "Navigation",
-        Description = "Go to the mark named by the next key pressed")]
-    public void MarkVisit() => _host.ReadName(NameTarget.MarkToVisit);
+        if (pane.Directory.Length == 0)
+        {
+            messages.Error("Nothing to mark.");
+            return;
+        }
 
-    [Command("marks", Group = "Navigation", Description = "List the marks that are set")]
+        if (name.Length == 0)
+        {
+            name = SuggestName(pane.Directory);
+        }
+
+        if (!MarkFile.IsValidName(name))
+        {
+            messages.Error($"'{name}' is not a quickmark name: one word of letters, digits, - or _.");
+            return;
+        }
+
+        _host.Marks.Set(name, pane.Directory, pane.CursorName);
+        messages.Info($"{name} → {pane.Directory}");
+    }
+
+    [Command("marks", Group = "Navigation", Description = "List the quickmarks that are set")]
     public void Marks([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -65,19 +95,19 @@ public sealed class ModeCommands
 
         if (names.Count == 0)
         {
-            messages.Info("No marks set. Press m then a key to set one.");
+            messages.Info("No quickmarks. Press m to set one here.");
             return;
         }
 
         messages.Info(string.Join(
-            "  ", names.Select(name => $"{name} {_host.Marks.Get(name)!.Value.Directory}")));
+            "   ", names.Select(name => $"{name} {_host.Marks.Get(name)!.Value.Directory}")));
     }
 
     [Command("mark-clear", Group = "Navigation",
-        Description = "Forget one mark, or every mark when none is named")]
+        Description = "Forget one quickmark, or every one when none is named")]
     public void MarkClear(
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
-        string name = "")
+        [CommandArgument(Completion = CompletionKind.Quickmark)] string name = "")
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(name);
@@ -85,12 +115,33 @@ public sealed class ModeCommands
         if (name.Length == 0)
         {
             _host.Marks.Clear();
-            messages.Info("All marks forgotten.");
+            messages.Info("All quickmarks forgotten.");
             return;
         }
 
-        _host.Marks.Clear(name[0]);
-        messages.Info($"Mark {name[0]} forgotten.");
+        if (_host.Marks.Get(name) is null)
+        {
+            messages.Error($"No quickmark called '{name}'.");
+            return;
+        }
+
+        _host.Marks.Clear(name);
+        messages.Info($"Quickmark {name} forgotten.");
+    }
+
+    /// <summary>
+    /// A name for the directory being marked, when the user gave none.
+    /// </summary>
+    /// <remarks>
+    /// The last segment, with anything a quickmark name cannot hold folded to <c>-</c>.
+    /// A root has no segment, so it falls back to something typeable rather than nothing.
+    /// </remarks>
+    private static string SuggestName(string directory)
+    {
+        var leaf = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var cleaned = new string([.. leaf.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-')]);
+
+        return MarkFile.IsValidName(cleaned) ? cleaned : "root";
     }
 
     [Command("frame-stats", Group = "Diagnostics",

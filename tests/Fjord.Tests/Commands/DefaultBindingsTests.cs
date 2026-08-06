@@ -55,8 +55,13 @@ public class DefaultBindingsTests
         {
             foreach (var (keys, command) in entries)
             {
-                var name = command.Split(' ')[0];
-                if (registry.Find(name) is null)
+                // A ':' binding is text for the command line, not a command to resolve.
+                // The command inside it still has to exist, though, or the key opens a
+                // line that can only fail — so the colon is stripped and it is checked.
+                var name = (CommandTemplate.IsCommandLine(command) ? command[1..] : command)
+                    .Split(' ')[0];
+
+                if (name.Length > 0 && registry.Find(name) is null)
                 {
                     unresolved.Add($"{mode}/{keys} -> {command}");
                 }
@@ -65,6 +70,23 @@ public class DefaultBindingsTests
 
         Assert.Empty(unresolved);
         Assert.NotNull(parser);
+    }
+
+    [Fact]
+    public void NoModeBindsTheSameKeysTwice()
+    {
+        // The table is a dictionary literal, so a duplicate is a TypeInitializationException
+        // at first key press rather than a compile error. Nearly shipped one by rebinding
+        // Ctrl-l to history-forward while search-clear still held it.
+        foreach (var (mode, entries) in DefaultBindings.All)
+        {
+            var duplicates = entries.Keys
+                .GroupBy(k => k, StringComparer.Ordinal)
+                .Where(g => g.Count() > 1)
+                .Select(g => $"{mode}/{g.Key}");
+
+            Assert.Empty(duplicates);
+        }
     }
 
     [Fact]
@@ -106,24 +128,32 @@ public class DefaultBindingsTests
     }
 
     [Fact]
-    public void TheKeysThatReadANameAskForTheRightThing()
+    public void TheRegisterKeyReadsTheNextKeystroke()
     {
-        // ", m and ' are ordinary bindings rather than characters wired into the key
-        // handler, which is what makes them movable. This checks the wiring survived.
+        // " is an ordinary binding rather than a character wired into the key handler,
+        // which is what makes it movable. This checks the wiring survived.
         var host = new FakeModeHost();
         var registry = new CommandRegistry();
         registry.Register(new ModeCommands(host));
         var parser = new CommandParser(registry);
 
-        var bindings = DefaultBindings.All["normal"];
+        parser.Execute(DefaultBindings.All["normal"]["\""], new CommandContext());
 
-        parser.Execute(bindings["\""], new CommandContext());
-        parser.Execute(bindings["m"], new CommandContext());
-        parser.Execute(bindings["'"], new CommandContext());
+        Assert.Equal(["read-name:Register"], host.Actions);
+    }
 
-        Assert.Equal(
-            ["read-name:Register", "read-name:MarkToSet", "read-name:MarkToVisit"],
-            host.Actions);
+    [Theory]
+    [InlineData("<F2>", ":rename ")]
+    [InlineData("c", ":cd ")]
+    [InlineData("m", ":mark-set ")]
+    public void TheCommandLineKeysOpenTheLineRatherThanRun(string keys, string expected)
+    {
+        // The leading ':' is the whole mechanism, and it is what a user copies to write
+        // their own. A default that lost it would run on key press instead.
+        var command = DefaultBindings.All["normal"][keys];
+
+        Assert.True(CommandTemplate.IsCommandLine(command));
+        Assert.StartsWith(expected, command, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -370,12 +400,17 @@ public class NavigationCommandTests
     [Fact]
     public void CdResolvesRelativePaths()
     {
+        // Against real directories, because :cd now refuses one that is not there.
+        using var temp = new Fjord.Tests.FileSystem.TempDirectory();
+        var nested = Path.Combine(temp.Path, "sub", "dir");
+        System.IO.Directory.CreateDirectory(nested);
+
         var (parser, _) = Setup();
-        var pane = new FakePane("/tmp");
+        var pane = new FakePane(temp.Path);
 
-        parser.Execute("cd sub/dir", new CommandContext { Pane = pane });
+        parser.Execute("cd sub/dir", Ctx(pane));
 
-        Assert.Equal([$"navigate:{Path.GetFullPath(Path.Combine("/tmp", "sub/dir"))}"], pane.Log);
+        Assert.Equal([$"navigate:{Path.GetFullPath(nested)}"], pane.Log);
     }
 
     [Fact]
@@ -383,12 +418,96 @@ public class NavigationCommandTests
     {
         // MaxSplit = 0, so the remainder is free text; a user typing a folder name with
         // spaces should not have to quote it.
+        using var temp = new Fjord.Tests.FileSystem.TempDirectory();
+        var spaced = Path.Combine(temp.Path, "My Documents");
+        System.IO.Directory.CreateDirectory(spaced);
+
         var (parser, _) = Setup();
+        var pane = new FakePane(temp.Path);
+
+        parser.Execute("cd My Documents", Ctx(pane));
+
+        Assert.Equal([$"navigate:{Path.GetFullPath(spaced)}"], pane.Log);
+    }
+
+    [Fact]
+    public void CdRefusesADirectoryThatIsNotThere()
+    {
+        // Navigating anyway produced an empty listing, which is indistinguishable from an
+        // empty directory and sends the user looking for files that were never there.
+        using var temp = new Fjord.Tests.FileSystem.TempDirectory();
+        var (parser, _) = Setup();
+        var pane = new FakePane(temp.Path);
+        var messages = new RecordingMessageSink();
+
+        parser.Execute("cd no-such-folder", Ctx(pane, messages));
+
+        Assert.Empty(pane.Log);
+        Assert.Equal(MessageLevel.Error, messages.Messages[^1].Level);
+        Assert.Contains("no-such-folder", messages.Last, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CdRefusesAFile()
+    {
+        using var temp = new Fjord.Tests.FileSystem.TempDirectory();
+        File.WriteAllText(Path.Combine(temp.Path, "a.txt"), string.Empty);
+
+        var (parser, _) = Setup();
+        var pane = new FakePane(temp.Path);
+        var messages = new RecordingMessageSink();
+
+        parser.Execute("cd a.txt", Ctx(pane, messages));
+
+        Assert.Empty(pane.Log);
+        Assert.Contains("is a file", messages.Last, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CdPrefersAQuickmarkOverASubdirectoryOfTheSameName()
+    {
+        // The point of naming a place: ":cd work" should reach the one you named even when
+        // a folder called "work" happens to be beside you. "./work" still gets the folder.
+        using var temp = new Fjord.Tests.FileSystem.TempDirectory();
+        var beside = Path.Combine(temp.Path, "work");
+        var marked = Path.Combine(temp.Path, "elsewhere");
+        System.IO.Directory.CreateDirectory(beside);
+        System.IO.Directory.CreateDirectory(marked);
+
+        var marks = new Fjord.Core.Navigation.MarkFile();
+        marks.Set("work", marked);
+
+        var pane = new FakePane(temp.Path);
+        MarkAwareParser(marks).Execute("cd work", Ctx(pane));
+
+        Assert.Equal([$"navigate:{marked}"], pane.Log);
+    }
+
+    [Fact]
+    public void AQuickmarkPointingAtSomethingGoneIsRefused()
+    {
+        // Directories get deleted. Saying so beats an empty listing that looks like an
+        // empty folder.
+        var marks = new Fjord.Core.Navigation.MarkFile();
+        marks.Set("stale", Path.Combine(Path.GetTempPath(), "fjord-was-never-here"));
+
         var pane = new FakePane("/tmp");
+        var messages = new RecordingMessageSink();
 
-        parser.Execute("cd My Documents", new CommandContext { Pane = pane });
+        MarkAwareParser(marks).Execute("cd stale", Ctx(pane, messages));
 
-        Assert.Equal([$"navigate:{Path.GetFullPath(Path.Combine("/tmp", "My Documents"))}"], pane.Log);
+        Assert.Empty(pane.Log);
+        Assert.Contains("is gone", messages.Last, StringComparison.Ordinal);
+    }
+
+    private static CommandContext Ctx(FakePane pane, IMessageSink? messages = null) =>
+        new() { Pane = pane, Messages = messages ?? NullMessageSink.Instance };
+
+    private static CommandParser MarkAwareParser(Fjord.Core.Navigation.MarkFile marks)
+    {
+        var registry = new CommandRegistry();
+        registry.Register(new NavigationCommands(null, marks));
+        return new CommandParser(registry);
     }
 }
 

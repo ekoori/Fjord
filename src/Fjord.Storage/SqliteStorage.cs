@@ -236,7 +236,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
 
     // ---- Marks
 
-    public void SaveMarks(IReadOnlyDictionary<char, Mark> marks)
+    public void SaveMarks(IReadOnlyDictionary<string, Mark> marks)
     {
         ArgumentNullException.ThrowIfNull(marks);
 
@@ -252,7 +252,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 VALUES ($name, $directory, $cursor);
                 """,
                 transaction,
-                ("$name", name.ToString()),
+                ("$name", name),
                 ("$directory", mark.Directory),
                 ("$cursor", (object?)mark.CursorName ?? DBNull.Value));
         }
@@ -260,9 +260,9 @@ public sealed class SqliteStorage : IStorage, IDisposable
         transaction.Commit();
     }
 
-    public IReadOnlyDictionary<char, Mark> LoadMarks()
+    public IReadOnlyDictionary<string, Mark> LoadMarks()
     {
-        var marks = new Dictionary<char, Mark>();
+        var marks = new Dictionary<string, Mark>(StringComparer.OrdinalIgnoreCase);
 
         using var command = Command("SELECT name, directory, cursor_name FROM marks;", null);
         using var reader = command.ExecuteReader();
@@ -271,11 +271,12 @@ public sealed class SqliteStorage : IStorage, IDisposable
         {
             var name = reader.GetString(0);
 
-            // A name is one character by construction. Anything else came from a hand-edited
-            // database and is skipped rather than crashing the restore.
-            if (name.Length == 1)
+            // Validated on the way back in as well as on the way out: a hand-edited database
+            // is a normal thing to have, and a name :cd could never match would be a
+            // quickmark the user can see listed and never reach.
+            if (MarkFile.IsValidName(name))
             {
-                marks[name[0]] = new Mark(
+                marks[name] = new Mark(
                     reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2));
             }
         }

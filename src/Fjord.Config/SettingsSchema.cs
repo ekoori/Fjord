@@ -287,10 +287,19 @@ public static class SettingsSchema
         }
     }
 
+    /// <summary>
+    /// The command a binding names, for looking up its description.
+    /// </summary>
+    /// <remarks>
+    /// A leading colon means the binding puts text on the command line rather than running
+    /// it. The command inside is still the one being described, so the colon is dropped
+    /// before the lookup — otherwise every command-line binding would be written with no
+    /// comment above it.
+    /// </remarks>
     private static string FirstWord(string command)
     {
-        var end = command.IndexOf(' ', StringComparison.Ordinal);
-        return end < 0 ? command : command[..end];
+        var text = command.StartsWith(':') ? command[1..] : command;
+        var end = text.IndexOf(' ', StringComparison.Ordinal);
+        return end < 0 ? text : text[..end];
     }
-
 }

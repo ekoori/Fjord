@@ -51,6 +51,22 @@ public interface IPane
     /// <summary>The range visual mode currently covers, or null when not in visual mode.</summary>
     EntryRange? VisualRange { get; }
 
+    /// <summary>
+    /// Whether the listing is a made-up one — a scrapbook — rather than a directory.
+    /// </summary>
+    /// <remarks>
+    /// A virtual listing has no parent to go up to and nothing to reload, so the keys that
+    /// leave a directory have to mean "leave this view" instead. Without it a scrapbook is
+    /// a room with no door.
+    /// </remarks>
+    bool IsVirtual { get; }
+
+    /// <summary>
+    /// Returns from a virtual listing to the directory that was showing before it.
+    /// </summary>
+    /// <returns>False when there was nothing to leave.</returns>
+    Task<bool> LeaveVirtualAsync();
+
     void MoveCursor(int delta);
 
     void MoveCursorTo(int row);

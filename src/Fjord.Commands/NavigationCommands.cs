@@ -1,5 +1,6 @@
 using Fjord.Core.Diagnostics;
 using Fjord.Core.FileSystem;
+using Fjord.Core.Navigation;
 using Fjord.Core.Panes;
 using Fjord.Core.Platform;
 using Fjord.Core.Selection;
@@ -18,12 +19,20 @@ namespace Fjord.Commands;
 public sealed class NavigationCommands
 {
     private readonly IPlatformServices? _platform;
+    private readonly MarkFile? _marks;
 
     /// <param name="platform">
     /// Used to open a file with its default application. Optional so command parsing and
     /// motion behaviour can be tested without an OS dependency.
     /// </param>
-    public NavigationCommands(IPlatformServices? platform = null) => _platform = platform;
+    /// <param name="marks">
+    /// Consulted by <c>:cd</c> before the filesystem. Optional for the same reason.
+    /// </param>
+    public NavigationCommands(IPlatformServices? platform = null, MarkFile? marks = null)
+    {
+        _platform = platform;
+        _marks = marks;
+    }
 
     // ---- Motions
 
@@ -137,9 +146,16 @@ public sealed class NavigationCommands
     }
 
     [Command("leave", Aliases = ["up"], Group = "Navigation",
-        Description = "Go to the parent directory")]
+        Description = "Go to the parent directory, or leave a scrapbook")]
     public Task Leave([CommandArgument(Value = CommandValue.Pane)] IPane pane)
     {
+        // A scrapbook has no parent. Every instinct for getting out of a listing — h,
+        // Backspace, Left, Escape — should get you out of one.
+        if (pane.IsVirtual)
+        {
+            return pane.LeaveVirtualAsync();
+        }
+
         var parent = Path.GetDirectoryName(pane.Directory.TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
@@ -152,11 +168,42 @@ public sealed class NavigationCommands
         return pane.NavigateAsync(parent, Path.GetFileName(pane.Directory));
     }
 
-    [Command("cd", Group = "Navigation", MaxSplit = 0, Description = "Go to a directory")]
+    /// <summary>
+    /// Goes to a quickmark, or to a directory.
+    /// </summary>
+    /// <remarks>
+    /// Quickmarks are tried first, so <c>:cd work</c> reaches the place you named even when
+    /// a folder called <c>work</c> happens to sit beside you. That is the point of naming
+    /// one; a subdirectory is always reachable as <c>./work</c>.
+    /// <para>
+    /// A destination that does not exist is refused rather than navigated to. Fjord will
+    /// happily show an empty listing for a path with nothing at it, which looks exactly like
+    /// an empty directory and sends the user looking for files that were never there.
+    /// </para>
+    /// </remarks>
+    [Command("cd", Group = "Navigation", MaxSplit = 0, Description = "Go to a quickmark or a directory")]
     public Task ChangeDirectory(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
-        [CommandArgument(Completion = CompletionKind.Directory)] string directory)
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Completion = CompletionKind.Destination)] string directory = "")
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(directory);
+
+        if (directory.Length == 0)
+        {
+            // Bare :cd goes home, as a shell's does. The picker is what a trailing space
+            // gets you, since that is the command line asking rather than the command.
+            directory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+        else if (_marks?.Get(directory) is { } mark)
+        {
+            return Directory.Exists(mark.Directory)
+                ? pane.NavigateAsync(mark.Directory, mark.CursorName)
+                : Refuse(messages, $"Quickmark {directory} points at {mark.Directory}, which is gone.");
+        }
+
         var expanded = directory.StartsWith('~')
             ? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -164,7 +211,33 @@ public sealed class NavigationCommands
             : directory;
 
         var target = Path.IsPathRooted(expanded) ? expanded : Path.Combine(pane.Directory, expanded);
-        return pane.NavigateAsync(Path.GetFullPath(target));
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(target);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return Refuse(messages, $"{directory} is not a usable path: {ex.Message}");
+        }
+
+        if (!Directory.Exists(full))
+        {
+            return Refuse(
+                messages,
+                File.Exists(full)
+                    ? $"{full} is a file, not a directory."
+                    : $"No directory or quickmark called '{directory}'.");
+        }
+
+        return pane.NavigateAsync(full);
+    }
+
+    private static Task Refuse(IMessageSink messages, string reason)
+    {
+        messages.Error(reason);
+        return Task.CompletedTask;
     }
 
     [Command("reload", Group = "Navigation", Description = "Re-read the current directory")]
