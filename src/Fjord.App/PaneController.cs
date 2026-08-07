@@ -186,6 +186,12 @@ public sealed class PaneController : IPane
     {
         if (_isActive)
         {
+            // Synchronously, because the caller is usually placing the cursor on an entry
+            // that arrived in the batch it just appended, and the view the list searches is
+            // refreshed lazily on the next paint. Without this the lookup runs against the
+            // previous directory's rows and always misses — which is why going back never
+            // restored the cursor to the folder you came out of.
+            _list.SyncView();
             return _list.MoveCursorToName(name, StringComparison.Ordinal);
         }
 

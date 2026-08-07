@@ -251,4 +251,55 @@ public class TabCommandTests
         Assert.False(workspace.Current.IsLocked);
         Assert.Contains("Unlocked", messages.Last!, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void TabMoveTakesAPositionFromTheCommandLine()
+    {
+        // The count is the vim prefix typed before a key; ":tab-move 1" from the command
+        // line is an argument. Only reading the count meant the typed form silently did
+        // nothing, which is how this was reported.
+        var workspace = new FakeWorkspace("/a", "/b", "/c") { CurrentIndex = 2 };
+
+        Parser().Execute("tab-move 1", Context(workspace));
+
+        Assert.Equal(["/c", "/a", "/b"], workspace.Directories);
+        Assert.Equal(0, workspace.CurrentIndex);
+    }
+
+    [Fact]
+    public void TabMoveStillHonoursACountedKeyPress()
+    {
+        var workspace = new FakeWorkspace("/a", "/b", "/c") { CurrentIndex = 0 };
+
+        Parser().Execute("tab-move", Context(workspace, count: 3));
+
+        Assert.Equal(["/b", "/c", "/a"], workspace.Directories);
+    }
+
+    [Fact]
+    public void MovingLeftAndRightSwapsWithTheNeighbour()
+    {
+        var workspace = new FakeWorkspace("/a", "/b", "/c") { CurrentIndex = 1 };
+        var parser = Parser();
+
+        parser.Execute("tab-move-left", Context(workspace));
+        Assert.Equal(["/b", "/a", "/c"], workspace.Directories);
+        Assert.Equal(0, workspace.CurrentIndex);
+
+        parser.Execute("tab-move-right", Context(workspace));
+        Assert.Equal(["/a", "/b", "/c"], workspace.Directories);
+    }
+
+    [Fact]
+    public void MovingLeftFromTheFrontWraps()
+    {
+        // A key that stops working at position one is worse than one that wraps, and
+        // tab-next already wraps.
+        var workspace = new FakeWorkspace("/a", "/b", "/c") { CurrentIndex = 0 };
+
+        Parser().Execute("tab-move-left", Context(workspace));
+
+        Assert.Equal(["/b", "/c", "/a"], workspace.Directories);
+        Assert.Equal(2, workspace.CurrentIndex);
+    }
 }

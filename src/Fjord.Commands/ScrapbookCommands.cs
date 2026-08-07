@@ -89,13 +89,15 @@ public sealed class ScrapbookCommands
             return;
         }
 
-        await _host.OpenScrapbookAsync(
+        await OpenItemsAsync(name, items).ConfigureAwait(true);
+    }
+
+    private Task OpenItemsAsync(string name, IReadOnlyList<ScrapItem> items) =>
+        _host.OpenScrapbookAsync(
             name,
             items.Select(i => i.Path).ToList(),
             items.Where(i => !string.IsNullOrEmpty(i.Comment))
-                 .ToDictionary(i => i.Path, i => i.Comment!, StringComparer.Ordinal))
-            .ConfigureAwait(true);
-    }
+                 .ToDictionary(i => i.Path, i => i.Comment!, StringComparer.Ordinal));
 
     /// <remarks>
     /// A scrapbook outlives the reason for collecting something. Forty paths with no note
@@ -136,13 +138,21 @@ public sealed class ScrapbookCommands
             : $"Noted {Count(annotated)} in '{name}'.");
     }
 
+    /// <remarks>
+    /// Reopens the scrapbook afterwards when that is what is on screen. A listing that
+    /// still shows what was just removed is worse than no feedback at all: the next Space
+    /// and the next d act on a row that is no longer there.
+    /// </remarks>
     [Command("scrap-remove", Group = "Scrapbook", MaxSplit = 0,
         Description = "Remove the selection from a scrapbook")]
-    public void ScrapRemove(
+    public async Task ScrapRemove(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
         string scrapbook = DefaultScrapbook)
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
         var paths = PaneTargets.Of(pane);
 
         if (paths.Count == 0)
@@ -151,7 +161,32 @@ public sealed class ScrapbookCommands
         }
 
         var name = Named(scrapbook);
-        messages.Info($"Removed {Count(_storage.RemoveFromScrapbook(name, paths))} from '{name}'.");
+        var removed = _storage.RemoveFromScrapbook(name, paths);
+        messages.Info($"Removed {Count(removed)} from '{name}'.");
+
+        // Only the scrapbook that is showing, and only when it was actually changed. A
+        // removal from another scrapbook must not yank the user out of this one.
+        if (removed > 0 && pane.IsVirtual && ShowingScrapbook(pane, name))
+        {
+            await ReopenAsync(name, messages).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Whether the pane is showing this scrapbook, by the label it was opened under.</summary>
+    private static bool ShowingScrapbook(IPane pane, string name) =>
+        string.Equals(pane.Directory, ScrapbookLabel(name), StringComparison.Ordinal);
+
+    /// <summary>Reopens a scrapbook, or leaves the listing when it has been emptied.</summary>
+    private async Task ReopenAsync(string name, IMessageSink messages)
+    {
+        var items = _storage.Scrapbook(name);
+
+        if (items.Count == 0)
+        {
+            messages.Info($"Scrapbook '{name}' is now empty.");
+        }
+
+        await OpenItemsAsync(name, items).ConfigureAwait(true);
     }
 
     [Command("scrap-clear", Group = "Scrapbook", MaxSplit = 0, Description = "Empty a scrapbook")]
@@ -193,6 +228,9 @@ public sealed class ScrapbookCommands
         await _host.OpenScrapbookIndexAsync(names, sizes, name => ScrapOpen(messages, name))
             .ConfigureAwait(true);
     }
+
+    /// <summary>How a scrapbook listing labels itself. The pane shows this as its directory.</summary>
+    public static string ScrapbookLabel(string name) => $"scrapbook:{name}";
 
     private static string Named(string name)
     {

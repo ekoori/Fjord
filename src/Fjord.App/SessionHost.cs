@@ -71,7 +71,9 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        return _workspace.ActivePane.ShowVirtualAsync($"scrapbook:{name}", paths, notes);
+        // The label is the scrapbook's own, so a command can tell which one is showing.
+        return _workspace.ActivePane.ShowVirtualAsync(
+            Fjord.Commands.ScrapbookCommands.ScrapbookLabel(name), paths, notes);
     }
 
     /// <summary>

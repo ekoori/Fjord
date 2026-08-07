@@ -174,6 +174,17 @@ public class ScrapbookCommandTests
 
     private static FakePane Pane() => new("/tmp", "a.txt", "b.txt", "c.txt");
 
+    /// <summary>A pane standing in for an open scrapbook: labelled, virtual, names are paths.</summary>
+    private static FakePane ScrapbookPane(params string[] paths)
+    {
+        var pane = new FakePane(ScrapbookCommands.ScrapbookLabel("default"), paths)
+        {
+            IsVirtual = true,
+        };
+
+        return pane;
+    }
+
     private static async Task Run(
         CommandParser parser, string line, FakePane pane, IMessageSink messages, EntryRange? range = null)
     {
@@ -412,5 +423,52 @@ public class ScrapbookCommandTests
     public void AnOrdinaryPaneRestoresToWhereItIs()
     {
         Assert.Equal("/home/u/src", new FakePane("/home/u/src").RestorableDirectory);
+    }
+
+    [Fact]
+    public async Task RemovingFromTheScrapbookOnScreenReopensIt()
+    {
+        // A listing that still shows what was just removed is worse than no feedback: the
+        // next Space and the next d act on a row that is not there any more.
+        var (parser, storage, host) = Setup();
+
+        // A scrapbook listing's entry names ARE full paths — that is what lets the rest of
+        // the app treat it as an ordinary listing — so the fake has to be built that way.
+        var pane = ScrapbookPane("/one/a.txt", "/two/b.txt");
+        storage.AddToScrapbook("default", ["/one/a.txt", "/two/b.txt"]);
+
+        await Run(parser, "scrap-remove", pane, new RecordingMessageSink());
+
+        Assert.NotNull(host.Opened);
+        Assert.Single(host.Opened!.Value.Paths);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task RemovingWhileLookingAtADirectoryDoesNotOpenAnything()
+    {
+        // Only the scrapbook that is showing gets reopened. Being yanked into one because
+        // something was removed from it would be worse than the stale row.
+        var (parser, storage, host) = Setup();
+        var pane = Pane();
+        storage.AddToScrapbook("default", [pane.PathAt(0)!]);
+
+        await Run(parser, "scrap-remove", pane, new RecordingMessageSink());
+
+        Assert.Null(host.Opened);
+        storage.Dispose();
+    }
+
+    [Fact]
+    public async Task RemovingFromADifferentScrapbookLeavesThisOneAlone()
+    {
+        var (parser, storage, host) = Setup();
+        var pane = ScrapbookPane("/one/a.txt");
+        storage.AddToScrapbook("other", ["/one/a.txt"]);
+
+        await Run(parser, "scrap-remove other", pane, new RecordingMessageSink());
+
+        Assert.Null(host.Opened);
+        storage.Dispose();
     }
 }

@@ -171,7 +171,7 @@ public sealed class Workspace : IWorkspace
         }
 
         var closed = _closed.Pop();
-        var tab = new Tab(_createPane());
+        var tab = NewTab();
         var index = Math.Clamp(closed.Index, 0, _tabs.Count);
 
         _tabs.Insert(index, tab);
@@ -213,7 +213,7 @@ public sealed class Workspace : IWorkspace
 
         foreach (var saved in session.Tabs)
         {
-            var tab = new Tab(_createPane());
+            var tab = NewTab();
             _tabs.Add(tab);
             loading.Add(tab.Controller.NavigateAsync(saved.Directory, saved.CursorName));
         }

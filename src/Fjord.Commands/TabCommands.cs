@@ -95,12 +95,50 @@ public sealed class TabCommands
             : $"Unlocked {tab.Title}.");
     }
 
-    [Command("tab-move", Group = "Tabs", Description = "Move the current tab to position <count>")]
+    /// <remarks>
+    /// Takes a position as an argument as well as a count, because they come from
+    /// different places: the count is the vim-style prefix typed before a key, and
+    /// <c>:tab-move 3</c> from the command line is an argument. Only supporting the count
+    /// meant the command silently did nothing when typed, which is how it was found.
+    /// </remarks>
+    [Command("tab-move", Group = "Tabs",
+        Description = "Move the current tab to position <n>, counting from one")]
     public void TabMove(
         [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace,
-        [CommandArgument(Value = CommandValue.Count)] int count = 0)
+        [CommandArgument(Value = CommandValue.Count)] int count = 0,
+        int position = 0)
     {
-        var target = count > 0 ? Math.Min(count, workspace.Tabs.Count) - 1 : 0;
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        var requested = position > 0 ? position : count;
+        var target = requested > 0 ? Math.Min(requested, workspace.Tabs.Count) - 1 : 0;
+
         workspace.MoveTab(workspace.CurrentIndex, target);
+    }
+
+    [Command("tab-move-left", Aliases = ["tabmoveleft"], Group = "Tabs",
+        Description = "Swap this tab with the one before it")]
+    public void TabMoveLeft(
+        [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        // Wraps, like tab-next does. Moving left off the front and landing at the back is
+        // more useful than a key that stops working at position one.
+        var from = workspace.CurrentIndex;
+        var to = from == 0 ? workspace.Tabs.Count - 1 : from - 1;
+        workspace.MoveTab(from, to);
+    }
+
+    [Command("tab-move-right", Aliases = ["tabmoveright"], Group = "Tabs",
+        Description = "Swap this tab with the one after it")]
+    public void TabMoveRight(
+        [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        var from = workspace.CurrentIndex;
+        var to = from == workspace.Tabs.Count - 1 ? 0 : from + 1;
+        workspace.MoveTab(from, to);
     }
 }

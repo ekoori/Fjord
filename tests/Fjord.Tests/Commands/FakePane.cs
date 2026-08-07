@@ -106,6 +106,9 @@ public sealed class FakePane : IPane
     /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
     public bool IsVirtual { get; set; }
 
+    /// <summary>Relabels the pane without navigating, as showing a scrapbook does.</summary>
+    public void SetDirectory(string directory) => Directory = directory;
+
     /// <summary>Where a virtual listing was opened from, when a test sets one.</summary>
     public string? Origin { get; set; }
 
