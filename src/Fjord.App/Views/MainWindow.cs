@@ -48,6 +48,9 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly Fjord.Storage.SqliteStorage _storage;
     private readonly SessionHost _sessions;
     private readonly TaskPanel _taskPanel;
+    private readonly CommandRegistry _registry;
+    private readonly CompletionList _keyHints;
+    private readonly DispatcherTimer _keyHintDelay;
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
@@ -129,6 +132,7 @@ public sealed class MainWindow : Window, IMessageSink
         _configService = new ConfigService(_paths, ReloadConfig);
 
         var registry = new CommandRegistry();
+        _registry = registry;
         registry.Register(new NavigationCommands(platform, _marks));
         registry.Register(new PlatformCommands(platform));
         registry.Register(new OperationCommands(_operations, new FileOperationFactory()));
@@ -190,6 +194,18 @@ public sealed class MainWindow : Window, IMessageSink
             IsVisible = false,
         };
 
+        _keyHints = new CompletionList(_theme);
+
+        // Delayed, or every "gg" typed at speed flashes a panel on the way past. Long
+        // enough that a user who knows the binding never sees it, short enough that one
+        // who has stopped to think does. Which-key picked 300 ms and it is about right.
+        _keyHintDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _keyHintDelay.Tick += (_, _) =>
+        {
+            _keyHintDelay.Stop();
+            ShowKeyHints();
+        };
+
         _path = Label(_theme.FileText);
         _status = Label(_theme.MutedText);
         _keys = Label(_theme.CursorBar);
@@ -209,6 +225,7 @@ public sealed class MainWindow : Window, IMessageSink
         DockPanel.SetDock(_commandLine, Dock.Bottom);
         DockPanel.SetDock(_commandLine.CompletionHost, Dock.Bottom);
         DockPanel.SetDock(_taskPanel, Dock.Bottom);
+        DockPanel.SetDock(_keyHints, Dock.Bottom);
 
         // Order matters: the completion list sits above the command line, which sits above
         // the status bar, and the file list fills what is left.
@@ -217,7 +234,7 @@ public sealed class MainWindow : Window, IMessageSink
             Children =
             {
                 _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost,
-                _taskPanel, new Panel { Children = { scroller, _help } },
+                _keyHints, _taskPanel, new Panel { Children = { scroller, _help } },
             },
         };
 
@@ -606,6 +623,68 @@ public sealed class MainWindow : Window, IMessageSink
     }
 
     /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
+    /// <summary>
+    /// Shows what could follow a half-typed binding.
+    /// </summary>
+    /// <remarks>
+    /// The gap this closes: <c>y</c> alone does nothing visible and gives no clue that
+    /// <c>yy</c> exists, so a binding you have not memorised is a binding you cannot find
+    /// from the keyboard. Also covers operator-pending, where the useful answer is the list
+    /// of motions the operator will accept.
+    /// </remarks>
+    private void UpdateKeyHints()
+    {
+        var buffered = _input.Modes.Buffered;
+        var pendingOperator = _input.Modes.PendingOperator is not null;
+
+        if (buffered.Count == 0 && !pendingOperator)
+        {
+            _keyHintDelay.Stop();
+            _keyHints.Hide();
+            return;
+        }
+
+        // Restarted on every keystroke, so the delay measures how long the user has been
+        // stuck rather than how long the sequence has been going.
+        _keyHintDelay.Stop();
+        _keyHintDelay.Start();
+    }
+
+    private void ShowKeyHints()
+    {
+        var mode = _input.Modes.Mode;
+        var buffered = _input.Modes.Buffered;
+
+        var items = _bindings.Continuations(mode, buffered)
+            .Select(c => new CompletionItem(
+                c.Keys.ToString(),
+                DescribeBinding(c.Command),
+                Group(c.Command)))
+            .OrderBy(i => i.Group, StringComparer.Ordinal)
+            .ToList();
+
+        if (items.Count == 0)
+        {
+            _keyHints.Hide();
+            return;
+        }
+
+        _keyHints.Show(items);
+    }
+
+    /// <summary>What a binding does, in the registry's own words where it has any.</summary>
+    private string DescribeBinding(string command)
+    {
+        var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
+        return _registry.Find(name)?.Description ?? command;
+    }
+
+    private string Group(string command)
+    {
+        var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
+        return _registry.Find(name)?.Group ?? string.Empty;
+    }
+
     private void RebuildTabBar()
     {
         _tabBar.IsVisible = _workspace.Tabs.Count > 1;
@@ -728,6 +807,7 @@ public sealed class MainWindow : Window, IMessageSink
         var mode = _input.Modes.Mode;
         var modeText = mode == KeyMode.Normal ? string.Empty : $"-- {mode.Name.ToUpperInvariant()} -- ";
         _keys.Text = modeText + _input.Modes.PendingKeys;
+        UpdateKeyHints();
 
         var snapshot = pane.Snapshot;
         if (snapshot is null)

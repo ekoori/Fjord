@@ -157,6 +157,40 @@ public class DefaultBindingsTests
     }
 
     [Fact]
+    public void ContinuationsListWhatCouldFollowAHalfTypedBinding()
+    {
+        // What the key-hint panel is built from: type g and be told gg and gs exist,
+        // rather than having to remember or give up.
+        var (bindings, _) = Loaded();
+
+        var next = bindings.Continuations(KeyMode.Normal, KeySequence.Parse("g"));
+
+        Assert.Contains(next, c => c.Keys.ToString() == "gg");
+        Assert.Contains(next, c => c.Keys.ToString() == "gs");
+        Assert.DoesNotContain(next, c => c.Keys.ToString() == "j");
+    }
+
+    [Fact]
+    public void AKeyThatCompletesNothingHasNoContinuations()
+    {
+        var (bindings, _) = Loaded();
+
+        Assert.Empty(bindings.Continuations(KeyMode.Normal, KeySequence.Parse("j")));
+    }
+
+    [Fact]
+    public void AnEmptySequenceAsksForTheWholeMode()
+    {
+        // What operator-pending needs: after d, the useful answer is every motion the
+        // operator will accept, and nothing has been typed towards one yet.
+        var (bindings, _) = Loaded();
+
+        var all = bindings.Continuations(KeyMode.Operator, KeySequence.Parse(""));
+
+        Assert.Equal(DefaultBindings.All["operator-pending"].Count, all.Count);
+    }
+
+    [Fact]
     public void MotionsDoNotMutateTheSnapshot()
     {
         // OperatorDispatcher resolves a range by running the motion and diffing the

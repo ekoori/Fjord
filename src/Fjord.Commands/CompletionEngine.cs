@@ -1,7 +1,12 @@
 namespace Fjord.Commands;
 
 /// <summary>One completion candidate.</summary>
-public sealed record CompletionItem(string Text, string Description = "")
+/// <param name="Group">
+/// The heading it sits under, or empty for an ungrouped list. What turns <c>:cd</c> from a
+/// flat list of strings into quickmarks, then places you have been, then the filesystem —
+/// which is the difference between reading a list and recognising one.
+/// </param>
+public sealed record CompletionItem(string Text, string Description = "", string Group = "")
 {
     /// <summary>What is inserted, quoted if the lexer would otherwise re-split it.</summary>
     public string Insertion => CommandLexer.Quote(Text);
@@ -239,12 +244,14 @@ public sealed class CompletionEngine
                 var isMark = destination.Kind == "mark";
 
                 items.Add(isMark
-                    ? new CompletionItem(destination.Name, $"mark      {destination.Path}")
-                    : new CompletionItem(destination.Path, $"recent    {destination.Name}"));
+                    ? new CompletionItem(destination.Name, destination.Path, "quickmarks")
+                    : new CompletionItem(destination.Path, string.Empty, "recent"));
             }
         }
 
-        items.AddRange(CompletePath(word, directoriesOnly: true));
+        items.AddRange(CompletePath(word, directoriesOnly: true)
+            .Select(i => i with { Group = "directories" }));
+
         return items;
     }
 

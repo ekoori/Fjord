@@ -20,17 +20,14 @@ namespace Fjord.App.Views;
 public sealed class CommandLine : Border
 {
     private readonly TextBox _input;
-    private readonly StackPanel _completions;
-    private readonly Border _completionHost;
+    private readonly CompletionList _completions;
     private readonly CompletionEngine _engine;
     private readonly CommandHistory _history = new();
-    private readonly ListTheme _theme;
 
     private CompletionResult _result = CompletionResult.Empty;
-    private int _selected = -1;
 
     /// <summary>
-    /// The line as it was when cycling began.
+    /// The line as it was before a candidate was applied.
     /// </summary>
     /// <remarks>
     /// Every candidate is applied to this, never to the current text. The span in
@@ -38,14 +35,13 @@ public sealed class CommandLine : Border
     /// candidate to the text the first one produced overwrites the wrong characters —
     /// ":cd s" cycled twice gives ":cd src/cripts/".
     /// </remarks>
-    private string _cycleOrigin = "";
+    private string _origin = "";
 
     /// <summary>Guards against reacting to text we set ourselves.</summary>
     private bool _settingText;
 
     public CommandLine(ListTheme theme, CompletionEngine engine)
     {
-        _theme = theme;
         _engine = engine;
 
         _input = new TextBox
@@ -65,16 +61,12 @@ public sealed class CommandLine : Border
             FocusAdorner = null,
         };
 
-        // A StackPanel with real children rather than an ItemsControl: the list is at most
-        // a few dozen entries, and this leaves no doubt about how items are realised.
-        _completions = new StackPanel { Margin = new Thickness(0, 0, 0, 2) };
-
-        _completionHost = new Border
+        _completions = new CompletionList(theme);
+        _completions.Chosen += (_, item) =>
         {
-            Background = theme.Stripe,
-            Padding = new Thickness(theme.LeftPadding, theme.RowPadding),
-            Child = _completions,
-            IsVisible = false,
+            Apply(item);
+            Refresh();
+            _input.Focus();
         };
 
         Background = theme.Stripe;
@@ -92,20 +84,7 @@ public sealed class CommandLine : Border
             }
 
             _history.Reset();
-
-            // While the list is up, typing narrows it rather than dismissing it — that is
-            // what makes ":cd " a picker you can filter. When it is not up, typing does not
-            // summon it: completing every keystroke of every command would mean a directory
-            // enumeration per character.
-            if (_completionHost.IsVisible)
-            {
-                HideCompletions();
-                OfferCompletions();
-            }
-            else
-            {
-                HideCompletions();
-            }
+            Refresh();
         };
 
         _input.AddHandler(KeyDownEvent, OnKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -144,7 +123,7 @@ public sealed class CommandLine : Border
     }
 
     /// <summary>The popup listing candidates. Hosted by the window above the command line.</summary>
-    public Control CompletionHost => _completionHost;
+    public Control CompletionHost => _completions;
 
     /// <summary>Raised when the user accepted a line with Enter.</summary>
     public event EventHandler<string>? Accepted;
@@ -158,59 +137,40 @@ public sealed class CommandLine : Border
     /// Opens the command line holding <paramref name="initial"/>.
     /// </summary>
     /// <remarks>
-    /// Text ending in a space shows its candidates straight away. That is the difference
-    /// between <c>c</c> opening <c>:cd </c> and the user having to guess whether there is
-    /// anything to Tab through: a binding that ends mid-command is asking a question, so
-    /// the answers should already be on screen.
+    /// Candidates appear immediately. A binding that opens <c>:cd </c> is asking a
+    /// question, and the answers should be on screen rather than behind a Tab the user has
+    /// to know to press.
     /// </remarks>
     public void Open(string initial)
     {
         ArgumentNullException.ThrowIfNull(initial);
 
-        _settingText = true;
-        _input.Text = initial;
-        _settingText = false;
+        SetText(initial, initial.Length);
 
         IsVisible = true;
         _history.Reset();
-        HideCompletions();
 
         _input.Focus();
-        _input.CaretIndex = initial.Length;
-
-        if (initial.EndsWith(' '))
-        {
-            OfferCompletions();
-        }
-    }
-
-    /// <summary>Shows what could come next, without inserting any of it.</summary>
-    private void OfferCompletions()
-    {
-        _cycleOrigin = _input.Text ?? string.Empty;
-        _result = _engine.Complete(_cycleOrigin, _input.CaretIndex);
-
-        if (_result.IsEmpty)
-        {
-            return;
-        }
-
-        // Listed but not selected: Tab still picks the first, and typing narrows instead of
-        // fighting a candidate that was inserted without being asked for.
-        ShowCompletions();
-        _selected = -1;
+        Refresh();
     }
 
     public void Close()
     {
         IsVisible = false;
-        HideCompletions();
+        _completions.Hide();
+        _result = CompletionResult.Empty;
 
-        _settingText = true;
-        _input.Text = string.Empty;
-        _settingText = false;
+        SetText(string.Empty, 0);
     }
 
+    public void RefreshTheme() => _completions.RefreshTheme();
+
+    /// <remarks>
+    /// Up and Down mean two things depending on what is on screen, and the list decides:
+    /// with candidates showing they move the selection, and without them they walk the
+    /// command history. That is how qutebrowser resolves the same collision, and it needs
+    /// no third key.
+    /// </remarks>
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         switch (e.Key)
@@ -225,7 +185,15 @@ public sealed class CommandLine : Border
                 break;
 
             case Key.Tab:
-                CycleCompletion(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+                MoveSelection(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+                break;
+
+            case Key.Up when _completions.IsOpen:
+                MoveSelection(-1);
+                break;
+
+            case Key.Down when _completions.IsOpen:
+                MoveSelection(1);
                 break;
 
             case Key.Up:
@@ -244,8 +212,21 @@ public sealed class CommandLine : Border
         e.Handled = true;
     }
 
+    /// <remarks>
+    /// Enter takes the highlighted candidate rather than running the line, when there is
+    /// one. Two presses of Enter therefore mean "this one, then go", which is what every
+    /// list with a text box above it does — and nothing is selected until the user moves,
+    /// so a line typed in full still runs on the first press.
+    /// </remarks>
     private void Accept()
     {
+        if (_completions.Selected is { } candidate)
+        {
+            Apply(candidate);
+            Refresh();
+            return;
+        }
+
         var line = _input.Text ?? string.Empty;
         _history.Add(line);
         Close();
@@ -261,89 +242,63 @@ public sealed class CommandLine : Border
         }
 
         SetText(entry, entry.Length);
+        Refresh();
+    }
+
+    private void MoveSelection(int delta)
+    {
+        if (!_completions.IsOpen)
+        {
+            return;
+        }
+
+        if (_completions.Move(delta) is { } candidate)
+        {
+            // Applied as it is highlighted, so the line always shows what Enter would run.
+            // The origin is not updated, so moving on to the next candidate replaces this
+            // one rather than appending to it.
+            var (text, caret) = _result.Apply(_origin, candidate);
+            SetText(text, caret);
+        }
     }
 
     /// <summary>
-    /// Moves through the candidates, applying each as it is highlighted.
+    /// Recomputes the candidates for the line as it stands.
     /// </summary>
     /// <remarks>
-    /// The result is captured once when cycling starts and reused, because applying a
-    /// candidate rewrites the line — recomputing would complete against the text just
-    /// inserted and the list would collapse to one entry after the first Tab.
+    /// On every keystroke, which is what makes the list narrow as you type rather than
+    /// being something you summon. The cost is one directory enumeration per character
+    /// while completing a path; the same enumeration Tab always did, and the engine is
+    /// asked only for the word the caret is in.
     /// </remarks>
-    private void CycleCompletion(int direction)
+    private void Refresh()
     {
-        if (_selected < 0)
-        {
-            _cycleOrigin = _input.Text ?? string.Empty;
-            _result = _engine.Complete(_cycleOrigin, _input.CaretIndex);
-            if (_result.IsEmpty)
-            {
-                return;
-            }
+        _origin = _input.Text ?? string.Empty;
+        _result = _engine.Complete(_origin, _input.CaretIndex);
 
-            ShowCompletions();
-            _selected = direction > 0 ? 0 : _result.Items.Count - 1;
-        }
-        else
+        if (_result.IsEmpty)
         {
-            _selected = (_selected + direction + _result.Items.Count) % _result.Items.Count;
+            _completions.Hide();
+            return;
         }
 
-        Highlight();
+        _completions.Show(_result.Items);
+    }
 
-        var (text, caret) = _result.Apply(_cycleOrigin, _result.Items[_selected]);
+    private void Apply(CompletionItem item)
+    {
+        var (text, caret) = _result.Apply(_origin, item);
         SetText(text, caret);
     }
 
     private void SetText(string text, int caret)
     {
-        // Without the guard, TextChanged would treat this as typing and drop the very
-        // completion state that produced it.
+        // Without the guard, TextChanged would treat this as typing and recompute against
+        // text the user did not enter, which for an applied candidate means completing the
+        // completion.
         _settingText = true;
         _input.Text = text;
         _input.CaretIndex = Math.Clamp(caret, 0, text.Length);
         _settingText = false;
-    }
-
-    private void ShowCompletions()
-    {
-        _completions.Children.Clear();
-
-        foreach (var item in _result.Items)
-        {
-            _completions.Children.Add(new TextBlock
-            {
-                Text = item.Description.Length > 0 ? $"{item.Text}    {item.Description}" : item.Text,
-                FontFamily = _theme.Typeface.FontFamily,
-                FontSize = _theme.FontSize,
-                Foreground = _theme.MutedText,
-                Padding = new Thickness(2, 1),
-            });
-        }
-
-        _completionHost.IsVisible = true;
-    }
-
-    private void Highlight()
-    {
-        for (var i = 0; i < _completions.Children.Count; i++)
-        {
-            if (_completions.Children[i] is not TextBlock block)
-            {
-                continue;
-            }
-
-            block.Foreground = i == _selected ? _theme.FileText : _theme.MutedText;
-            block.Background = i == _selected ? _theme.SelectedBackground : Brushes.Transparent;
-        }
-    }
-
-    private void HideCompletions()
-    {
-        _completionHost.IsVisible = false;
-        _completions.Children.Clear();
-        _result = CompletionResult.Empty;
-        _selected = -1;
     }
 }

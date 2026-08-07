@@ -128,6 +128,33 @@ public sealed class KeyBindings
             : new BindingMatch(SequenceMatch.NoMatch, null, null);
     }
 
+    /// <summary>
+    /// Bindings that could still complete what has been typed so far.
+    /// </summary>
+    /// <remarks>
+    /// What lets the window show the user their options mid-sequence: type <c>g</c> and be
+    /// told that <c>gg</c> and <c>gs</c> exist, rather than having to remember or give up.
+    /// An empty <paramref name="typed"/> asks for everything in the mode, which is what a
+    /// full cheat sheet would want.
+    /// </remarks>
+    public IReadOnlyList<(KeySequence Keys, string Command)> Continuations(KeyMode mode, KeySequence typed)
+    {
+        var index = Index(mode);
+
+        var candidates = typed.Count == 0
+            ? index.Effective.Select(e => (e.Key, e.Value))
+            : index.ByFirstKey.TryGetValue(typed[0], out var byFirst)
+                ? byFirst.Select(e => (e.Key, e.Value))
+                : [];
+
+        return
+        [
+            .. candidates
+                .Where(c => typed.Count == 0 || typed.Matches(c.Item1) == SequenceMatch.PartialMatch)
+                .OrderBy(c => c.Item1.ToString(), StringComparer.Ordinal),
+        ];
+    }
+
     private void Invalidate(KeyMode mode) => _index.Remove(mode);
 
     private ModeIndex Index(KeyMode mode)

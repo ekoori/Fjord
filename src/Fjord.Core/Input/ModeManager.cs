@@ -97,6 +97,16 @@ public sealed class ModeManager
     public string? PendingOperator => _pendingOperator;
 
     /// <summary>
+    /// The keys held so far, as a sequence rather than as display text.
+    /// </summary>
+    /// <remarks>
+    /// What the window asks the bindings about to show the user their options mid-sequence.
+    /// <see cref="PendingKeys"/> is for reading and includes the count and register; this
+    /// is the part that can still be completed.
+    /// </remarks>
+    public KeySequence Buffered => new([.. _buffer]);
+
+    /// <summary>
     /// Names the register the next command should use, as <c>"a</c> does.
     /// </summary>
     /// <remarks>
