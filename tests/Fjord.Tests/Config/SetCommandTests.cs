@@ -254,7 +254,9 @@ public class GetScalarTests
 
         var text = File.ReadAllText(path);
 
-        foreach (var setting in SettingsSchema.All.Where(s => s.Name != "bindings"))
+        // Excluding the map-shaped ones: they are nested blocks rather than scalars, which
+        // is exactly why :set refuses them and why they have commands of their own.
+        foreach (var setting in SettingsSchema.All.Where(s => !s.Type.Contains("->", StringComparison.Ordinal)))
         {
             Assert.NotNull(ConfigFile.GetScalar(text, setting.Name));
         }

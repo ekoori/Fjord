@@ -160,6 +160,9 @@ public enum CompletionKind
     /// <summary>Quickmark names only.</summary>
     Quickmark,
 
+    /// <summary>Named listings, as <c>:sort</c> takes.</summary>
+    Listing,
+
     /// <summary>
     /// Somewhere to go: quickmarks and recent directories first, then real directories.
     /// </summary>

@@ -21,6 +21,15 @@ public sealed class FjordConfig
 
     public LoggingConfig Logging { get; set; } = new();
 
+    /// <summary>
+    /// Named views of a directory, cycled through by <c>:sort</c>.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Listing"/>, which is the one in effect at startup. These
+    /// are the ones you can return to by name.
+    /// </remarks>
+    public Dictionary<string, ListingPreset> Listings { get; set; } = [];
+
     public BehaviourConfig Behaviour { get; set; } = new();
 
     /// <summary>

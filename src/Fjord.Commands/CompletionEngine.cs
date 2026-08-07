@@ -98,6 +98,7 @@ public sealed class CompletionEngine
     private readonly IPathCompletionSource? _paths;
     private readonly Func<IReadOnlyList<CompletionItem>>? _settings;
     private readonly IDestinationSource? _destinations;
+    private readonly Func<IReadOnlyList<string>>? _listings;
 
     /// <param name="settings">
     /// Setting names and their documentation. A delegate rather than a list because the
@@ -107,12 +108,14 @@ public sealed class CompletionEngine
         CommandRegistry registry,
         IPathCompletionSource? paths = null,
         Func<IReadOnlyList<CompletionItem>>? settings = null,
-        IDestinationSource? destinations = null)
+        IDestinationSource? destinations = null,
+        Func<IReadOnlyList<string>>? listings = null)
     {
         _registry = registry;
         _paths = paths;
         _settings = settings;
         _destinations = destinations;
+        _listings = listings;
     }
 
     /// <summary>Completes the word ending at <paramref name="caret"/>.</summary>
@@ -191,10 +194,16 @@ public sealed class CompletionEngine
             CompletionKind.Directory => CompletePath(word, directoriesOnly: true),
             CompletionKind.Setting => CompleteSetting(word),
             CompletionKind.Quickmark => CompleteQuickmark(word),
+            CompletionKind.Listing => CompleteListing(word),
             CompletionKind.Destination => CompleteDestination(word),
             _ => [],
         };
     }
+
+    private List<CompletionItem> CompleteListing(string word) =>
+        [.. (_listings?.Invoke() ?? [])
+            .Where(l => l.Contains(word, StringComparison.OrdinalIgnoreCase))
+            .Select(l => new CompletionItem(l))];
 
     private List<CompletionItem> CompleteQuickmark(string word) =>
         [.. (_destinations?.Quickmarks() ?? [])

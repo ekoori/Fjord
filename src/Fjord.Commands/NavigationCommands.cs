@@ -20,6 +20,7 @@ public sealed class NavigationCommands
 {
     private readonly IPlatformServices? _platform;
     private readonly MarkFile? _marks;
+    private readonly Core.Config.IConfigService? _config;
 
     /// <param name="platform">
     /// Used to open a file with its default application. Optional so command parsing and
@@ -28,10 +29,18 @@ public sealed class NavigationCommands
     /// <param name="marks">
     /// Consulted by <c>:cd</c> before the filesystem. Optional for the same reason.
     /// </param>
-    public NavigationCommands(IPlatformServices? platform = null, MarkFile? marks = null)
+    /// <param name="config">
+    /// Supplies the named listings <c>:sort</c> cycles through. Optional for the same
+    /// reason as the others: the motions are tested without any of it.
+    /// </param>
+    public NavigationCommands(
+        IPlatformServices? platform = null,
+        MarkFile? marks = null,
+        Core.Config.IConfigService? config = null)
     {
         _platform = platform;
         _marks = marks;
+        _config = config;
     }
 
     // ---- Motions
@@ -292,13 +301,43 @@ public sealed class NavigationCommands
 
     // ---- Ordering
 
-    [Command("sort", Group = "Listing", Description = "Change the sort order")]
+    /// <summary>
+    /// Applies a named listing, cycles to the next one, or changes the order directly.
+    /// </summary>
+    /// <remarks>
+    /// Three jobs because they are the same question asked at three levels of detail.
+    /// Bare <c>:sort</c> is the interactive one and cycles, which is what makes a single
+    /// key alternate a column's direction and then move on to the next column. A listing
+    /// replaces the view wholesale rather than patching it, so the same name always gives
+    /// the same result and the cycle is predictable from anywhere.
+    /// </remarks>
+    [Command("sort", Group = "Listing", MaxSplit = 1,
+        Description = "Apply a named listing, or cycle through them")]
     public void Sort(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Completion = CompletionKind.Listing)] string listing = "",
         [CommandArgument(Flag = 'k', Choices = ["name", "size", "modified", "extension"])]
         string key = "",
         [CommandArgument(Flag = 'r')] bool reverse = false)
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(listing);
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (listing.Length > 0)
+        {
+            Apply(pane, messages, listing);
+            return;
+        }
+
+        if (key.Length == 0 && !reverse && NextListing(pane) is { } next)
+        {
+            Apply(pane, messages, next);
+            return;
+        }
+
         var sort = pane.Sort;
 
         if (key.Length > 0)
@@ -306,12 +345,115 @@ public sealed class NavigationCommands
             sort = sort with { Key = Enum.Parse<SortKey>(key, ignoreCase: true) };
         }
 
-        // With no flags at all, :sort toggles direction — the common interactive case.
+        // No listings configured and no key given: fall back to what :sort always did,
+        // so removing every listing leaves a usable command rather than a dead key.
         sort = reverse || key.Length == 0
             ? sort with { Descending = !pane.Sort.Descending }
             : sort;
 
         pane.SetOrder(sort, pane.Filter);
+    }
+
+    /// <summary>The listing after whichever one matches the pane, or the first.</summary>
+    /// <remarks>
+    /// Found by matching the current view rather than by remembering where the cycle last
+    /// stopped. Changing the order some other way — a flag, a config reload — then pressing
+    /// the key should continue from what is on screen, not from a position nothing else
+    /// knows about.
+    /// </remarks>
+    private string? NextListing(IPane pane)
+    {
+        var names = _config?.ListingNames ?? [];
+
+        if (names.Count == 0)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < names.Count; i++)
+        {
+            if (_config!.Listing(names[i]) is { } view
+                && view.Sort == pane.Sort
+                && view.Filter == pane.Filter)
+            {
+                return names[(i + 1) % names.Count];
+            }
+        }
+
+        return names[0];
+    }
+
+    private void Apply(IPane pane, IMessageSink messages, string name)
+    {
+        if (_config?.Listing(name) is not { } view)
+        {
+            messages.Error($"No listing called '{name}'.");
+            return;
+        }
+
+        pane.SetOrder(view.Sort, view.Filter);
+        messages.Info($"Listing: {name}");
+    }
+
+    [Command("listing-save", Group = "Listing",
+        Description = "Save the current sort and filter under a name")]
+    public void ListingSave(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        string name)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_config is null)
+        {
+            messages.Error("No configuration file to save to.");
+            return;
+        }
+
+        if (_config.SaveListing(name, pane.Sort, pane.Filter) is { } problem)
+        {
+            messages.Error(problem);
+            return;
+        }
+
+        messages.Info($"Saved listing '{name}'.");
+    }
+
+    [Command("listing-remove", Group = "Listing", Description = "Remove a named listing")]
+    public void ListingRemove(
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Completion = CompletionKind.Listing)] string name)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_config is null)
+        {
+            messages.Error("No configuration file to edit.");
+            return;
+        }
+
+        if (_config.RemoveListing(name) is { } problem)
+        {
+            messages.Error(problem);
+            return;
+        }
+
+        messages.Info($"Removed listing '{name}'.");
+    }
+
+    [Command("listings", Group = "Listing", Description = "List the named listings")]
+    public void Listings([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var names = _config?.ListingNames ?? [];
+
+        messages.Info(names.Count == 0
+            ? "No listings. :listing-save <name> keeps the current one."
+            : string.Join("  ", names));
     }
 
     [Command("toggle-hidden", Group = "Listing", Description = "Show or hide dotfiles")]

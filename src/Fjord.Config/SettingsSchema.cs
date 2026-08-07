@@ -66,6 +66,10 @@ public static class SettingsSchema
         new("logging.max_files", "number", "3",
             "Log generations kept, including the current file. Each rolls at 1 MB."),
 
+        new("listings", "name -> listing", "{}",
+            "Named views of a directory. :sort <name> applies one and bare :sort cycles "
+            + "through them, so one key alternates a column's direction and moves on."),
+
         new("bindings", "mode -> keys -> command", "{}",
             "Key bindings, layered over the defaults. Every key MUST be quoted: YAML reads "
             + "bare n, y, on, off, yes and no as booleans."),
@@ -198,7 +202,9 @@ public static class SettingsSchema
 
         foreach (var setting in All)
         {
-            if (setting.Name == "bindings")
+            // The two map-shaped settings write themselves, further down, as live nested
+            // blocks. Emitting them here would put "bindings: {}" above the real thing.
+            if (setting.Name is "bindings" or "listings")
             {
                 continue;
             }
@@ -213,6 +219,7 @@ public static class SettingsSchema
             output.AppendLine();
         }
 
+        EmitListings(output);
         EmitBindings(output, defaultBindings, descriptions);
         return output.ToString();
     }
@@ -257,6 +264,41 @@ public static class SettingsSchema
     /// keymap, and the file says so rather than leaving it to be deduced.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Writes the shipped listings as live, editable entries.
+    /// </summary>
+    /// <remarks>
+    /// Live for the same reason the bindings are: this is the section a user opens the file
+    /// to rearrange, and a commented block is documentation you have to retype. The order
+    /// here is the order <c>:sort</c> cycles in, so moving two blocks changes the cycle.
+    /// </remarks>
+    private static void EmitListings(StringBuilder output)
+    {
+        output.AppendLine("# Named views of a directory, in the order :sort cycles through them.");
+        output.AppendLine("#");
+        output.AppendLine("#   :sort <name>        apply one");
+        output.AppendLine("#   :sort               step to the next");
+        output.AppendLine("#   :listing-save <name>  keep what is on screen under a name");
+        output.AppendLine("#   :listing-remove <name>");
+        output.AppendLine("#");
+        output.AppendLine("# A listing is a complete view, not a patch: every field is applied, so the");
+        output.AppendLine("# same name always gives the same result wherever you were before.");
+        output.AppendLine("listings:");
+
+        foreach (var (name, preset) in DefaultListings.All)
+        {
+            output.AppendLine();
+            output.Append("  ").Append(name).AppendLine(":");
+            output.Append("    sort_key: ").AppendLine(preset.SortKey.ToString().ToLowerInvariant());
+            output.Append("    sort_descending: ").AppendLine(preset.SortDescending ? "true" : "false");
+            output.Append("    directories_first: ").AppendLine(preset.DirectoriesFirst ? "true" : "false");
+            output.Append("    natural_sort: ").AppendLine(preset.NaturalSort ? "true" : "false");
+            output.Append("    show_hidden: ").AppendLine(preset.ShowHidden ? "true" : "false");
+        }
+
+        output.AppendLine();
+    }
+
     private static void EmitBindings(
         StringBuilder output,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? defaults,

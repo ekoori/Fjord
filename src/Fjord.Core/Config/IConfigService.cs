@@ -40,6 +40,27 @@ public interface IConfigService
     IReadOnlyList<SettingInfo> Settings { get; }
 
     /// <summary>
+    /// Named listings, in the order <c>:sort</c> cycles through them.
+    /// </summary>
+    /// <remarks>
+    /// Order is part of the contract. A cycle whose sequence came from a dictionary's
+    /// enumeration would change between runs, and a key that lands somewhere different
+    /// each time is not a key anyone learns.
+    /// </remarks>
+    IReadOnlyList<string> ListingNames { get; }
+
+    /// <summary>One named listing, or null when there is none under that name.</summary>
+    (FileSystem.SortSpec Sort, FileSystem.FilterSpec Filter)? Listing(string name);
+
+    /// <summary>Writes a listing to the file under this name, replacing any of the same.</summary>
+    /// <returns>Why it was refused, or null when it was written.</returns>
+    string? SaveListing(string name, FileSystem.SortSpec sort, FileSystem.FilterSpec filter);
+
+    /// <summary>Removes a named listing from the file.</summary>
+    /// <returns>Why it was refused, or null when it was removed.</returns>
+    string? RemoveListing(string name);
+
+    /// <summary>
     /// Writes one setting to the file and applies it.
     /// </summary>
     /// <returns>Why it was refused, or null when it was written.</returns>

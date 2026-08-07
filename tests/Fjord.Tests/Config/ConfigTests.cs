@@ -150,7 +150,9 @@ public class SettingsSchemaTests
             var name = prefix + Underscored(property.Name);
             var propertyType = property.PropertyType;
 
-            // Nested config sections recurse; anything else is a leaf setting.
+            // Nested config sections recurse; anything else is a leaf setting. A map of
+            // sections — bindings, listings — is documented as one entry rather than as a
+            // leaf per field, because its keys are the user's and cannot be enumerated.
             if (propertyType.IsClass && propertyType.Namespace == typeof(FjordConfig).Namespace
                 && !propertyType.IsGenericType && propertyType != typeof(string))
             {

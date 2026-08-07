@@ -1,5 +1,6 @@
 using Fjord.Commands;
 using Fjord.Core.Config;
+using Fjord.Core.FileSystem;
 using Fjord.Core.Diagnostics;
 using Fjord.Core.Input;
 using Fjord.Tests.Platform;
@@ -60,6 +61,38 @@ internal sealed class FakeConfigService : IConfigService
     public string? SetError { get; set; }
 
     public List<(string Name, string Value)> Written { get; } = [];
+
+    /// <summary>Named listings the fake knows about, and what each one means.</summary>
+    public Dictionary<string, (SortSpec Sort, FilterSpec Filter)> Listings { get; } = [];
+
+    /// <summary>Listings saved through the fake, in order.</summary>
+    public List<string> Saved { get; } = [];
+
+    /// <summary>Listings removed through the fake, in order.</summary>
+    public List<string> Removed { get; } = [];
+
+    public IReadOnlyList<string> ListingNames => [.. Listings.Keys];
+
+    public (SortSpec Sort, FilterSpec Filter)? Listing(string name) =>
+        Listings.TryGetValue(name, out var view) ? view : null;
+
+    public string? SaveListing(string name, SortSpec sort, FilterSpec filter)
+    {
+        Saved.Add(name);
+        Listings[name] = (sort, filter);
+        return null;
+    }
+
+    public string? RemoveListing(string name)
+    {
+        if (!Listings.Remove(name))
+        {
+            return $"No listing called '{name}'.";
+        }
+
+        Removed.Add(name);
+        return null;
+    }
 
     public string? Set(string name, string value)
     {

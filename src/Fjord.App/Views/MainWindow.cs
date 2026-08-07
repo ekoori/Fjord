@@ -133,7 +133,7 @@ public sealed class MainWindow : Window, IMessageSink
 
         var registry = new CommandRegistry();
         _registry = registry;
-        registry.Register(new NavigationCommands(platform, _marks));
+        registry.Register(new NavigationCommands(platform, _marks, _configService));
         registry.Register(new PlatformCommands(platform));
         registry.Register(new OperationCommands(_operations, new FileOperationFactory()));
         registry.Register(new HelpCommands(
@@ -179,7 +179,8 @@ public sealed class MainWindow : Window, IMessageSink
                 registry,
                 new PathCompletionSource(() => _workspace.ActivePane),
                 SettingCompletions,
-                new DestinationSource(_marks, _storage)));
+                new DestinationSource(_marks, _storage),
+                () => _configService.ListingNames));
 
         DefaultBindings.Load(_bindings, _modeRegistry);
         ApplyUserBindings();

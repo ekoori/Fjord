@@ -1,5 +1,6 @@
 using Fjord.Config;
 using Fjord.Core.Config;
+using Fjord.Core.FileSystem;
 
 namespace Fjord.App;
 
@@ -48,6 +49,119 @@ public sealed class ConfigService : IConfigService
             path, Commands.DefaultBindings.All, Commands.CommandCatalogue.Descriptions);
 
     public string? Reload() => _reload();
+
+    /// <summary>
+    /// The listings currently in the file, in the order it lists them.
+    /// </summary>
+    /// <remarks>
+    /// Read from the text rather than from the parsed config, because the order is what
+    /// <c>:sort</c> cycles in and a deserialized dictionary has none worth relying on. The
+    /// file's own order is also the one the user can see and rearrange.
+    /// </remarks>
+    public IReadOnlyList<string> ListingNames
+    {
+        get
+        {
+            var named = ConfigSections.SectionNames(ReadOrEmpty(), "listings");
+            return named.Count > 0 ? named : [.. DefaultListings.All.Keys];
+        }
+    }
+
+    public (SortSpec Sort, FilterSpec Filter)? Listing(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var configured = ConfigFile.Load(ConfigFilePath).Config.Listings;
+
+        if (configured.TryGetValue(name, out var preset)
+            || DefaultListings.All.TryGetValue(name, out preset))
+        {
+            return (preset.ToSortSpec(), preset.ToFilterSpec());
+        }
+
+        return null;
+    }
+
+    public string? SaveListing(string name, SortSpec sort, FilterSpec filter)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!IsValidListingName(name))
+        {
+            return $"'{name}' is not a listing name: one word of letters, digits, - or _.";
+        }
+
+        var preset = ListingPreset.From(sort, filter);
+
+        var fields = new[]
+        {
+            $"sort_key: {preset.SortKey.ToString().ToLowerInvariant()}",
+            $"sort_descending: {Yaml(preset.SortDescending)}",
+            $"directories_first: {Yaml(preset.DirectoriesFirst)}",
+            $"natural_sort: {Yaml(preset.NaturalSort)}",
+            $"show_hidden: {Yaml(preset.ShowHidden)}",
+        };
+
+        return Rewrite(text => ConfigSections.SetSection(text, "listings", name, fields));
+    }
+
+    public string? RemoveListing(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (Listing(name) is null)
+        {
+            return $"No listing called '{name}'.";
+        }
+
+        return Rewrite(text => ConfigSections.RemoveSection(text, "listings", name));
+    }
+
+    /// <summary>
+    /// Rewrites the file and applies it.
+    /// </summary>
+    /// <remarks>
+    /// Every write goes through here so none of them can forget the reload. A change that
+    /// only reaches the file is a change the user has to restart to see, which for
+    /// something they just typed reads as the command having failed.
+    /// </remarks>
+    private string? Rewrite(Func<string, string> change)
+    {
+        try
+        {
+            EnsureExists();
+
+            var text = File.ReadAllText(ConfigFilePath);
+            var updated = change(text);
+
+            if (string.Equals(text, updated, StringComparison.Ordinal))
+            {
+                return "Nothing changed.";
+            }
+
+            File.WriteAllText(ConfigFilePath, updated);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ex.Message;
+        }
+
+        return _reload();
+    }
+
+    /// <remarks>
+    /// The same rule quickmarks use, for the same reason: these names are typed as
+    /// arguments, so anything with a space or a separator in it would need quoting to be
+    /// usable and would look like a path when it was not.
+    /// </remarks>
+    private static bool IsValidListingName(string name) =>
+        !string.IsNullOrWhiteSpace(name)
+        && name.All(c => char.IsLetterOrDigit(c) || c is '-' or '_');
+
+    private static string Yaml(bool value) => value ? "true" : "false";
 
     public IReadOnlyList<SettingInfo> Settings
     {
