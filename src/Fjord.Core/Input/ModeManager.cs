@@ -195,7 +195,7 @@ public sealed class ModeManager
 
         _buffer.Add(key);
         var typed = new KeySequence(_buffer.ToArray());
-        var match = _bindings.Match(Mode, typed);
+        var match = MatchWithFallback(typed);
 
         if (match.IsExact)
         {
@@ -302,6 +302,50 @@ public sealed class ModeManager
         ({ } a, null) => a,
         ({ } a, { } b) => a * b,
     };
+
+    /// <summary>
+    /// Matches against the current mode, then anything it falls back to.
+    /// </summary>
+    /// <remarks>
+    /// The specific mode wins, and a partial match in it beats an exact one in the
+    /// fallback. That is what makes <c>dd</c> in a scrapbook reach scrap-remove: the first
+    /// <c>d</c> is a prefix here and a whole binding in normal mode, and firing the normal
+    /// one would make the specialised binding unreachable.
+    /// </remarks>
+    private BindingMatch MatchWithFallback(KeySequence typed)
+    {
+        var mode = Mode;
+        var partial = false;
+
+        // Bounded rather than trusting the chain to terminate: the fallback comes from
+        // configuration eventually, and a mode that falls back to itself would hang the
+        // key handler rather than fail.
+        for (var depth = 0; depth < 8; depth++)
+        {
+            var match = _bindings.Match(mode, typed);
+
+            // Checked before the exact, not after: a partial seen in a more specific mode
+            // means more keys could still arrive, and firing a whole binding from the
+            // fallback now would make the specific one unreachable.
+            if (match.IsExact && !partial)
+            {
+                return match;
+            }
+
+            partial |= match.IsPartial;
+
+            if (_modes.FallbackFor(mode) is not { } next || next == mode)
+            {
+                break;
+            }
+
+            mode = next;
+        }
+
+        return partial
+            ? new BindingMatch(SequenceMatch.PartialMatch, null, null)
+            : new BindingMatch(SequenceMatch.NoMatch, null, null);
+    }
 
     private static string FirstWord(string command)
     {

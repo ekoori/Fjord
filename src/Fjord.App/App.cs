@@ -44,6 +44,7 @@ public sealed class App : Application
             _logging = FjordLog.Create(paths, initial.Config.Logging);
             var log = _logging.CreateLogger<App>();
             LogStartup(log, paths, initial);
+            CatchWhatEscapes(log);
 
             // Flushing matters less than it looks, since the provider flushes every record,
             // but the file handle should not outlive the app that owns it.
@@ -53,6 +54,30 @@ public sealed class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Records anything that gets past every other handler.
+    /// </summary>
+    /// <remarks>
+    /// A crash that leaves nothing behind is the worst kind of bug report, and this app had
+    /// exactly that: an exception from a UI event handler took the process down with an
+    /// empty log and a Windows fault bucket saying only which assembly it came from.
+    /// Neither hook can stop the process — that is not what they are for — but they can
+    /// make sure the stack reaches the file first.
+    /// </remarks>
+    private static void CatchWhatEscapes(ILogger log)
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            log.LogCritical(e.ExceptionObject as Exception, "unhandled exception, terminating");
+
+        // A faulted Task nobody awaited. Silent by default since .NET 4.5, and this app
+        // starts plenty of them from event handlers.
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            log.LogError(e.Exception, "a task failed and nobody was watching");
+            e.SetObserved();
+        };
     }
 
     private static void LogStartup(ILogger log, FjordPaths paths, ConfigLoadResult initial)

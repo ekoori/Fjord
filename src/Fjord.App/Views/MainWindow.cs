@@ -50,8 +50,17 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly TaskPanel _taskPanel;
     private readonly CommandRegistry _registry;
 
+    /// <summary>How far the pointer must travel before a press becomes a drag.</summary>
+    /// <remarks>
+    /// Without it a click with an unsteady hand redraws the tab bar under the pointer,
+    /// which reads as the app twitching.
+    /// </remarks>
+    private const double DragThreshold = 4;
+
     // Which tab a drag started on, while one is in progress.
     private int? _dragFrom;
+    private Point _dragOrigin;
+    private bool _dragging;
 
     // What the breadcrumb strip was last built for, so it is not rebuilt on every repaint.
     private string _breadcrumbPath = string.Empty;
@@ -662,7 +671,7 @@ public sealed class MainWindow : Window, IMessageSink
         var mode = _input.Modes.Mode;
         var buffered = _input.Modes.Buffered;
 
-        var items = _bindings.Continuations(mode, buffered)
+        var items = Continuations(mode, buffered)
             .Select(c => new CompletionItem(
                 c.Keys.ToString(),
                 DescribeBinding(c.Command),
@@ -679,6 +688,38 @@ public sealed class MainWindow : Window, IMessageSink
         _keyHints.Show(items);
     }
 
+    /// <summary>
+    /// Continuations for a mode and everything it falls back to.
+    /// </summary>
+    /// <remarks>
+    /// A scrapbook that listed only its own four keys would suggest the motions had gone.
+    /// The specific mode's binding for a sequence wins, since that is what pressing it will
+    /// actually do.
+    /// </remarks>
+    private IReadOnlyList<(Core.Keys.KeySequence Keys, string Command)> Continuations(
+        KeyMode mode, Core.Keys.KeySequence buffered)
+    {
+        var seen = new Dictionary<string, (Core.Keys.KeySequence Keys, string Command)>(StringComparer.Ordinal);
+        var current = mode;
+
+        for (var depth = 0; depth < 8; depth++)
+        {
+            foreach (var candidate in _bindings.Continuations(current, buffered))
+            {
+                seen.TryAdd(candidate.Keys.ToString(), candidate);
+            }
+
+            if (_modeRegistry.FallbackFor(current) is not { } next || next == current)
+            {
+                break;
+            }
+
+            current = next;
+        }
+
+        return [.. seen.Values];
+    }
+
     /// <summary>What a binding does, in the registry's own words where it has any.</summary>
     private string DescribeBinding(string command)
     {
@@ -690,6 +731,33 @@ public sealed class MainWindow : Window, IMessageSink
     {
         var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
         return _registry.Find(name)?.Group ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Shows a tab as picked up, and where it would land.
+    /// </summary>
+    /// <remarks>
+    /// The dragged chip is dimmed and the one it would displace gets an accent edge on the
+    /// side it would arrive from. Nothing moved until release, so without this the gesture
+    /// had no feedback at all and looked like nothing was happening.
+    /// </remarks>
+    private void ShowDrag(int from, int? to)
+    {
+        for (var i = 0; i < _tabStrip.Children.Count; i++)
+        {
+            if (_tabStrip.Children[i] is not Border chip)
+            {
+                continue;
+            }
+
+            var isSource = i == from;
+
+            chip.Opacity = isSource ? 0.45 : 1;
+            chip.BorderBrush = _theme.CursorBar;
+            chip.BorderThickness = i == to && to != from
+                ? new Thickness(to > from ? 0 : 2, 0, to > from ? 2 : 0, 0)
+                : default;
+        }
     }
 
     /// <summary>Which tab position a pointer release lands on, or null when it missed.</summary>
@@ -845,25 +913,54 @@ public sealed class MainWindow : Window, IMessageSink
             {
                 _workspace.CurrentIndex = index;
                 _dragFrom = index;
+                _dragOrigin = e.GetPosition(_tabStrip);
                 _list.Focus();
                 e.Pointer.Capture(chip);
             };
 
-            // Reordering by dragging is decided on release, from what is under the pointer
-            // then. Tracking the drag as it moves would mean reordering the strip under the
-            // cursor mid-gesture, which makes the tab you are holding run away from you.
+            // Reordering is decided on release, from what is under the pointer then.
+            // Reordering as the pointer moves would shuffle the strip under the cursor
+            // mid-gesture and make the tab you are holding run away from you — so the
+            // feedback moves instead, and the tabs stay put until you let go.
+            chip.PointerMoved += (_, e) =>
+            {
+                if (_dragFrom is not { } from)
+                {
+                    return;
+                }
+
+                var at = e.GetPosition(_tabStrip);
+
+                // A few pixels of slack, so a click with an unsteady hand is still a click
+                // and not a drag that redraws the bar under it.
+                if (!_dragging && Math.Abs(at.X - _dragOrigin.X) < DragThreshold)
+                {
+                    return;
+                }
+
+                _dragging = true;
+                ShowDrag(from, DropTargetAt(at));
+            };
+
             chip.PointerReleased += (_, e) =>
             {
                 e.Pointer.Capture(null);
 
                 if (_dragFrom is { } from)
                 {
+                    var dragged = _dragging;
                     _dragFrom = null;
+                    _dragging = false;
 
-                    if (DropTargetAt(e.GetPosition(_tabStrip)) is { } to && to != from)
+                    if (dragged && DropTargetAt(e.GetPosition(_tabStrip)) is { } to && to != from)
                     {
                         _workspace.MoveTab(from, to);
+                        return;
                     }
+
+                    // A click rather than a drag, or dropped where it started: put the
+                    // borrowed styling back, since nothing is going to rebuild the bar.
+                    RebuildTabBar();
                 }
             };
 
@@ -943,6 +1040,7 @@ public sealed class MainWindow : Window, IMessageSink
         }
 
         RebuildBreadcrumbs(pane.Directory);
+        _input.SyncModeToPane(pane);
 
         // Pending keys and mode, exactly as QuteSharp's status bar shows them: a
         // half-typed "g" or an armed operator has to be visible or the app feels stuck.

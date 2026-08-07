@@ -36,7 +36,8 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
             // RestorableDirectory, not Directory: a pane showing a scrapbook has a label
             // where its path would be, and the tab comes back pointed at the real place it
             // was opened from.
-            tabs.Add(new SavedTab(pane.RestorableDirectory, pane.CursorName, selection!));
+            tabs.Add(new SavedTab(
+                pane.RestorableDirectory, pane.CursorName, selection!, tab.IsLocked, tab.Name));
         }
 
         return new SavedSession(name, tabs, _workspace.CurrentIndex);

@@ -153,6 +153,19 @@ public static class DefaultBindings
                 ["<Space>"] = "select-toggle",
             },
 
+            // Only what differs from normal mode. Everything else — motions, tabs, the
+            // command line — falls through, so this stays a short list of the keys whose
+            // meaning genuinely changes when the entries are references rather than files.
+            ["scrapbook"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                // Taking something out of a collection, not off the disk. The doubling is
+                // the same convention as everywhere else, and d on its own still waits.
+                ["dd"] = "scrap-remove",
+                ["D"] = "scrap-remove",
+                ["n"] = ":scrap-note ",
+                ["gs"] = "scrap-list",
+            },
+
             ["operator-pending"] = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["j"] = "move-down",

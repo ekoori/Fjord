@@ -111,6 +111,30 @@ public sealed class InputController : IModeHost
         return result.Disposition == KeyDisposition.Consumed;
     }
 
+    /// <summary>
+    /// Switches between normal and scrapbook mode as the pane's contents change.
+    /// </summary>
+    /// <remarks>
+    /// Driven by what the pane is showing rather than by a key, because the mode is a fact
+    /// about the listing and not a state the user enters. Left alone while the user is in
+    /// the middle of something modal — visual, operator-pending, a prompt — since a
+    /// navigation completing underneath should not cancel a half-typed operator.
+    /// </remarks>
+    public void SyncModeToPane(IPane? pane)
+    {
+        if (_modes.Mode != KeyMode.Normal && _modes.Mode != KeyMode.Scrapbook)
+        {
+            return;
+        }
+
+        var wanted = pane is { IsVirtual: true } ? KeyMode.Scrapbook : KeyMode.Normal;
+
+        if (_modes.Mode != wanted)
+        {
+            _modes.EnterMode(wanted);
+        }
+    }
+
     /// <summary>Enters or leaves visual mode, anchoring the selection at the cursor.</summary>
     public void ToggleVisual(IPane pane)
     {
@@ -135,6 +159,9 @@ public sealed class InputController : IModeHost
         _pendingAnswer = null;
         LeaveVisual(pane);
         _modes.Reset();
+
+        // Reset lands in normal mode, which is wrong when the pane is still a scrapbook.
+        SyncModeToPane(pane);
     }
 
     /// <summary>Opens the command line. The window supplies the handler.</summary>

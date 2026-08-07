@@ -21,7 +21,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
     /// <summary>
     /// Bumped when the schema changes; <see cref="Migrate"/> applies everything newer.
     /// </summary>
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
 
     private readonly SqliteConnection _connection;
 
@@ -90,15 +90,18 @@ public sealed class SqliteStorage : IStorage, IDisposable
 
             Execute(
                 """
-                INSERT INTO session_tabs (session_name, position, directory, cursor_name, selection)
-                VALUES ($name, $position, $directory, $cursor, $selection);
+                INSERT INTO session_tabs
+                    (session_name, position, directory, cursor_name, selection, locked, tab_name)
+                VALUES ($name, $position, $directory, $cursor, $selection, $locked, $tabName);
                 """,
                 transaction,
                 ("$name", session.Name),
                 ("$position", i),
                 ("$directory", tab.Directory),
                 ("$cursor", (object?)tab.CursorName ?? DBNull.Value),
-                ("$selection", string.Join('\n', tab.Selection)));
+                ("$selection", string.Join('\n', tab.Selection)),
+                ("$locked", tab.IsLocked ? 1 : 0),
+                ("$tabName", (object?)tab.Name ?? DBNull.Value));
         }
 
         transaction.Commit();
@@ -119,7 +122,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
 
         using var command = Command(
             """
-            SELECT directory, cursor_name, selection FROM session_tabs
+            SELECT directory, cursor_name, selection, locked, tab_name FROM session_tabs
             WHERE session_name = $name ORDER BY position;
             """,
             null,
@@ -133,7 +136,9 @@ public sealed class SqliteStorage : IStorage, IDisposable
             tabs.Add(new SavedTab(
                 reader.GetString(0),
                 reader.IsDBNull(1) ? null : reader.GetString(1),
-                selection.Length == 0 ? [] : selection.Split('\n')));
+                selection.Length == 0 ? [] : selection.Split('\n'),
+                !reader.IsDBNull(3) && reader.GetInt64(3) != 0,
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
         }
 
         return new SavedSession(name, tabs, Convert.ToInt32(active, System.Globalization.CultureInfo.InvariantCulture));
@@ -381,6 +386,14 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 );
                 """,
                 transaction);
+        }
+
+        if (current < 4)
+        {
+            // Two more ALTER TABLEs. Existing sessions come back unlocked and unnamed,
+            // which is what they were.
+            Execute("ALTER TABLE session_tabs ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;", transaction);
+            Execute("ALTER TABLE session_tabs ADD COLUMN tab_name TEXT;", transaction);
         }
 
         if (current < 3)

@@ -40,6 +40,17 @@ public sealed class ListTheme
     // columns to "2026-08-03 2…" instead of widening them.
     public double SizeColumnWidth => Math.Ceiling(FontSize * 5.5);
 
+    /// <summary>
+    /// Width of the note column, in listings that have notes.
+    /// </summary>
+    /// <remarks>
+    /// Taken out of the name's share rather than out of the size and date, which were being
+    /// dropped entirely to make room: a scrapbook entry's size and age are exactly what you
+    /// are looking at it for. Notes are short by nature — the whole point is a reminder, not
+    /// a paragraph — so a fixed column trims gracefully.
+    /// </remarks>
+    public double NoteColumnWidth => Math.Ceiling(FontSize * 14.0);
+
     public double ModifiedColumnWidth => Math.Ceiling(FontSize * 9.0);
 
     /// <summary>Width of the accent bar marking the cursor row.</summary>

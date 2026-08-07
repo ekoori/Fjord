@@ -5,7 +5,18 @@ namespace Fjord.Core.Storage;
 /// The entry the cursor was on, by name. Rows do not survive a resort or files changing
 /// while the session was closed; a name does.
 /// </param>
-public sealed record SavedTab(string Directory, string? CursorName, IReadOnlyList<string> Selection);
+/// <param name="IsLocked">
+/// Whether the tab was pinned to its directory. Part of the session because it is a
+/// decision the user made about that tab, and one they would have to remember to make
+/// again every launch otherwise.
+/// </param>
+/// <param name="Name">The name the user gave the tab, or null for the directory's own.</param>
+public sealed record SavedTab(
+    string Directory,
+    string? CursorName,
+    IReadOnlyList<string> Selection,
+    bool IsLocked = false,
+    string? Name = null);
 
 /// <summary>A session: what the window looked like.</summary>
 public sealed record SavedSession(string Name, IReadOnlyList<SavedTab> Tabs, int ActiveTab)

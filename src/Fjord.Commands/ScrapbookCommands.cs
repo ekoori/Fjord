@@ -106,7 +106,7 @@ public sealed class ScrapbookCommands
     /// </remarks>
     [Command("scrap-note", Aliases = ["note"], Group = "Scrapbook", MaxSplit = 0,
         Description = "Note why the selection is in a scrapbook. An empty note clears it.")]
-    public void ScrapNote(
+    public async Task ScrapNote(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
 
@@ -136,6 +136,13 @@ public sealed class ScrapbookCommands
         messages.Info(comment.Length == 0
             ? $"Cleared the note on {Count(annotated)}."
             : $"Noted {Count(annotated)} in '{name}'.");
+
+        // The note is a column in the listing, so a note you cannot see until you reopen
+        // the scrapbook is one you have no reason to believe was written.
+        if (pane.IsVirtual && ShowingScrapbook(pane, name))
+        {
+            await ReopenAsync(name, messages).ConfigureAwait(true);
+        }
     }
 
     /// <remarks>

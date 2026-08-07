@@ -45,6 +45,17 @@ public readonly record struct KeyMode : IComparable<KeyMode>
     /// <summary>The next keystroke names a mark.</summary>
     public static readonly KeyMode Mark = new("mark");
 
+    /// <summary>
+    /// A scrapbook is showing rather than a directory.
+    /// </summary>
+    /// <remarks>
+    /// A mode of its own because the same keys mean different things here: the entries are
+    /// references rather than files, so <c>dd</c> should take one out of the collection
+    /// rather than out of the filesystem. Falls back to normal, so only the keys that
+    /// differ need saying.
+    /// </remarks>
+    public static readonly KeyMode Scrapbook = new("scrapbook");
+
     private readonly string? _name;
 
     public KeyMode(string name) =>
@@ -75,10 +86,20 @@ public readonly record struct KeyMode : IComparable<KeyMode>
 /// Whether a range is already selected, so an operator runs immediately instead of
 /// waiting for a motion.
 /// </param>
+/// <param name="FallsBackTo">
+/// A mode to consult when this one has nothing for a key, or null.
+/// </param>
+/// <remarks>
+/// The fallback is what makes a specialised mode worth having. Without it, a scrapbook mode
+/// would have to restate every motion, every tab key and every command binding to avoid
+/// taking them away — fifty lines duplicated in the generated file, and a second copy to
+/// keep in step every time a default changes.
+/// </remarks>
 public sealed record KeyModeTraits(
     bool ForwardsUnmatchedKeys = false,
     bool SupportsCount = false,
-    bool IsSelectionMode = false);
+    bool IsSelectionMode = false,
+    KeyMode? FallsBackTo = null);
 
 /// <summary>
 /// Knows every mode that exists and what each one does with a key.
@@ -106,6 +127,10 @@ public sealed class KeyModeRegistry
         Register(KeyMode.YesNo, Conservative);
         Register(KeyMode.Register, Conservative);
         Register(KeyMode.Mark, Conservative);
+
+        Register(
+            KeyMode.Scrapbook,
+            new KeyModeTraits(SupportsCount: true, FallsBackTo: KeyMode.Normal));
     }
 
     public IReadOnlyCollection<KeyMode> Modes => _traits.Keys;
@@ -121,6 +146,10 @@ public sealed class KeyModeRegistry
     public KeyMode Register(string name, KeyModeTraits traits) => Register(new KeyMode(name), traits);
 
     public bool IsRegistered(KeyMode mode) => _traits.ContainsKey(mode);
+
+    /// <summary>The mode to consult when this one has nothing for a key, or null.</summary>
+    public KeyMode? FallbackFor(KeyMode mode) =>
+        _traits.TryGetValue(mode, out var traits) ? traits.FallsBackTo : null;
 
     /// <summary>Resolves a mode name from config, e.g. the keys of the <c>bindings</c> map.</summary>
     public bool TryParse(string name, out KeyMode mode)

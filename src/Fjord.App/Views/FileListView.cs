@@ -380,10 +380,17 @@ public sealed class FileListView : Control, ILogicalScrollable
         if (TopLevel.GetTopLevel(this) is { } top && Math.Abs(top.RenderScaling - _lastScaling) > 0.0001)
         {
             _lastScaling = top.RenderScaling;
+
             if (theme.SetScaling(_lastScaling))
             {
                 InvalidateRowCache();
-                UpdateExtent();
+
+                // Deferred, not called here. UpdateExtent raises ScrollInvalidated, and
+                // Avalonia throws "Visual was invalidated during the render pass" for
+                // anything that dirties the tree from inside Render. This branch runs on
+                // the first paint and on every DPI change — dragging the window to another
+                // monitor was a crash waiting for someone to do it.
+                Dispatcher.UIThread.Post(UpdateExtent, DispatcherPriority.Render);
             }
         }
 
@@ -497,13 +504,13 @@ public sealed class FileListView : Control, ILogicalScrollable
         {
             if (visual.Note is { } note)
             {
-                context.DrawText(note, new Point(sizeX, textY));
+                // Between the name and the size, so the numeric columns stay where the eye
+                // expects them whether or not this listing has notes.
+                context.DrawText(note, new Point(sizeX - theme.ColumnGap - theme.NoteColumnWidth, textY));
             }
-            else
-            {
-                context.DrawText(visual.Size, new Point(sizeX, textY));
-                context.DrawText(visual.Modified, new Point(modifiedX, textY));
-            }
+
+            context.DrawText(visual.Size, new Point(sizeX, textY));
+            context.DrawText(visual.Modified, new Point(modifiedX, textY));
         }
 
         _ = rowHeight;
@@ -532,13 +539,14 @@ public sealed class FileListView : Control, ILogicalScrollable
             : entry.IsDirectory ? theme.DirectoryText
             : theme.FileText;
 
+        var note = Annotation(entry.Name);
+
         var nameWidth = Math.Max(
             16,
             _viewport.Width
             - theme.ModifiedColumnWidth - theme.SizeColumnWidth
+            - (note is null ? 0 : theme.NoteColumnWidth + theme.ColumnGap)
             - (theme.ColumnGap * 2) - (theme.LeftPadding * 2) - theme.CursorBarWidth);
-
-        var noteWidth = theme.SizeColumnWidth + theme.ColumnGap + theme.ModifiedColumnWidth;
 
         var built = new RowVisual(
             row,
@@ -546,9 +554,9 @@ public sealed class FileListView : Control, ILogicalScrollable
             Text(entry.Name, nameBrush, nameWidth, theme, TextAlignment.Left),
             Text(SizeFormatter.Format(entry.Size), theme.MutedText, theme.SizeColumnWidth, theme, TextAlignment.Right),
             Text(FormatModified(in entry), theme.MutedText, theme.ModifiedColumnWidth, theme, TextAlignment.Right),
-            Annotation(entry.Name) is { } note
-                ? Text(note, theme.MutedText, noteWidth, theme, TextAlignment.Left)
-                : null);
+            note is null
+                ? null
+                : Text(note, theme.CursorBar, theme.NoteColumnWidth, theme, TextAlignment.Left));
 
         _visuals[slot] = built;
         return built;
@@ -621,8 +629,9 @@ public sealed class FileListView : Control, ILogicalScrollable
 
     /// <summary>Cached text for one row. A class so a slot can be null when never built.</summary>
     /// <param name="Note">
-    /// The entry's annotation, or null when the listing has none. When set it replaces the
-    /// size and modified columns rather than squeezing in beside them.
+    /// The entry's annotation, or null when the listing has none. It takes its width from
+    /// the name rather than from the size and modified columns, which a scrapbook entry is
+    /// often exactly what you are looking at it for.
     /// </param>
     private sealed record RowVisual(
         int Row,

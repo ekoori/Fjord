@@ -34,6 +34,10 @@ public sealed class PaneController : IPane
     // What opening a row means, when the rows are names rather than paths.
     private Func<string, Task>? _openVirtual;
 
+    // Virtual listings this pane has shown, by label. Small and bounded by how many
+    // scrapbooks the user opens in one tab, and cleared with the pane.
+    private readonly Dictionary<string, VirtualListing> _virtualListings = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Given first refusal on every navigation to a different directory.
     /// </summary>
@@ -242,6 +246,22 @@ public sealed class PaneController : IPane
     /// </param>
     public async Task NavigateAsync(string directory, string? selectName = null, bool recordHistory = true)
     {
+        // A label this pane has shown before is a listing to replay, not a path to resolve.
+        // This is what makes back and forward work through a scrapbook.
+        if (_virtualListings.TryGetValue(directory, out var remembered))
+        {
+            await ShowVirtualAsync(
+                directory, remembered.Paths, remembered.Annotations, remembered.Open)
+                .ConfigureAwait(true);
+
+            if (selectName is not null)
+            {
+                MoveCursorToName(selectName);
+            }
+
+            return;
+        }
+
         string full;
 
         try
@@ -350,10 +370,24 @@ public sealed class PaneController : IPane
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        // Remembered before the snapshot is replaced, so Escape has somewhere to go back
-        // to. Not pushed onto history: a scrapbook is a view of the pane, not a place, and
-        // leaving it should return you to where you were rather than one step further back.
+        // Where Escape and h go back to. Kept separately from history because those keys
+        // mean "leave this view", which is not the same as "one step back" once you have
+        // been somewhere else since.
         _leftBehind ??= (Directory, CurrentCursorName());
+
+        // Remembered so history can replay it. A scrapbook is not on disk, so going back to
+        // one cannot be a matter of listing a directory — without this, entering a folder
+        // from a scrapbook and pressing back landed on whatever the tab showed before the
+        // scrapbook was ever opened.
+        _virtualListings[label] = new VirtualListing(paths, annotations, open);
+
+        var reshowing = string.Equals(Directory, label, StringComparison.Ordinal);
+
+        if (!reshowing)
+        {
+            History.UpdateCursor(CurrentCursorName());
+            History.Push(label);
+        }
 
         var previous = _navigation;
         _navigation = null;
@@ -363,6 +397,10 @@ public sealed class PaneController : IPane
             await previous.CancelAsync().ConfigureAwait(true);
             previous.Dispose();
         }
+
+        // Refreshing the listing you are already looking at should not throw away where you
+        // were in it, which is what adding a note to the third entry does.
+        var cursor = reshowing ? CurrentCursorName() : null;
 
         var snapshot = new DirectorySnapshot(label, Sort, Filter with { ShowHidden = true })
         {
@@ -381,8 +419,19 @@ public sealed class PaneController : IPane
             _list.SyncView();
         }
 
+        if (cursor is not null)
+        {
+            MoveCursorToName(cursor);
+        }
+
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>A listing that is not a directory, kept so history can show it again.</summary>
+    private sealed record VirtualListing(
+        IReadOnlyList<string> Paths,
+        IReadOnlyDictionary<string, string>? Annotations,
+        Func<string, Task>? Open);
 
     public bool IsVirtual => _leftBehind is not null;
 

@@ -324,3 +324,88 @@ public class OperatorPendingTests
         Assert.Equal("delete", manager.PendingOperator);
     }
 }
+
+public class ModeFallbackTests
+{
+    private static ModeManager Setup()
+    {
+        var bindings = new KeyBindings();
+        var modes = new KeyModeRegistry();
+
+        bindings.AddDefault(KeyMode.Normal, "j", "move-down");
+        bindings.AddDefault(KeyMode.Normal, "d", "trash");
+        bindings.AddDefault(KeyMode.Normal, "gs", "scrap-open");
+
+        // Only what differs, which is the point of the fallback.
+        bindings.AddDefault(KeyMode.Scrapbook, "dd", "scrap-remove");
+
+        var manager = new ModeManager(bindings, modes, name => name == "trash");
+        manager.EnterMode(KeyMode.Scrapbook);
+        return manager;
+    }
+
+    private static KeyResult Feed(ModeManager manager, string keys)
+    {
+        var result = default(KeyResult);
+
+        foreach (var key in KeySequence.Parse(keys))
+        {
+            result = manager.HandleKey(key);
+        }
+
+        return result;
+    }
+
+    [Fact]
+    public void AKeyTheModeDoesNotDefineFallsThrough()
+    {
+        // Without this a scrapbook would have to restate every motion to avoid taking it
+        // away, and the duplicate would drift the first time a default changed.
+        Assert.Equal("move-down", Feed(Setup(), "j").Command);
+    }
+
+    [Fact]
+    public void ASequenceTheModeDefinesWinsOverTheFallback()
+    {
+        // dd is the whole reason for the mode: d alone is an operator in normal mode, and
+        // firing it would make the specialised binding unreachable.
+        var result = Feed(Setup(), "dd");
+
+        Assert.Equal("scrap-remove", result.Command);
+        Assert.Null(result.Operator);
+    }
+
+    [Fact]
+    public void APartialInTheModeBeatsAnExactInTheFallback()
+    {
+        // The first d is a prefix here and a whole binding in normal mode. It has to wait.
+        var manager = Setup();
+
+        var result = Feed(manager, "d");
+
+        Assert.False(result.HasCommand);
+        Assert.False(result.HasOperator);
+        Assert.Equal(KeyMode.Scrapbook, manager.Mode);
+    }
+
+    [Fact]
+    public void AMultiKeyFallbackStillResolves()
+    {
+        Assert.Equal("scrap-open", Feed(Setup(), "gs").Command);
+    }
+
+    [Fact]
+    public void TheFallbackAppliesInNormalModeToo()
+    {
+        // Normal falls back to nothing, so d is the operator it always was.
+        var bindings = new KeyBindings();
+        var modes = new KeyModeRegistry();
+        bindings.AddDefault(KeyMode.Normal, "d", "trash");
+
+        var manager = new ModeManager(bindings, modes, name => name == "trash");
+
+        Feed(manager, "d");
+
+        Assert.Equal("trash", manager.PendingOperator);
+    }
+}

@@ -200,6 +200,27 @@ public class SqliteStorageTests : IDisposable
         Assert.Equal("/dir9", _storage.RecentDirectories(3)[0]);
     }
 
+    [Fact]
+    public void ALockedAndNamedTabComesBackThatWay()
+    {
+        // Both are decisions the user made about that tab. Losing them on restart means
+        // making them again every launch, which is most of the value gone.
+        _storage.SaveSession(new SavedSession(
+            "s",
+            [
+                new SavedTab("/work", null, [], IsLocked: true, Name: "work"),
+                new SavedTab("/other", null, []),
+            ],
+            0));
+
+        var loaded = _storage.LoadSession("s")!;
+
+        Assert.True(loaded.Tabs[0].IsLocked);
+        Assert.Equal("work", loaded.Tabs[0].Name);
+        Assert.False(loaded.Tabs[1].IsLocked);
+        Assert.Null(loaded.Tabs[1].Name);
+    }
+
     // ---- Marks
 
     [Fact]
