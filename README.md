@@ -23,6 +23,9 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 - **Registers and quickmarks.** `"ay` collects into `"a`; `m` names the directory you are
   in and `:cd <name>` goes back to it. Quickmarks survive a restart.
 - **Lockable tabs.** Pin a tab to its folder; navigating out opens a new one and follows it.
+  Name them with `:tab-rename`, reorder by dragging.
+- **Archives as folders.** Enter a `.zip` or `.tar.gz` and browse it; `:extract` copies out.
+- **Named listings.** `:sort` cycles through saved sort orders; `:listing-save` keeps one.
 - **A `:` command line** with history and path completion.
 - **Fuzzy search.** `/` narrows the listing as you type: `fjc` finds `Fjord.Core.csproj`.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
@@ -107,6 +110,7 @@ out of date.
 | `Y` | copy the full paths to the system clipboard as text |
 | `L` `H` | next / previous tab |
 | `Ctrl-h` `Ctrl-l` | back / forward |
+| `Ctrl-F2` | name this tab |
 | `?` | help |
 | `:` | command line |
 
