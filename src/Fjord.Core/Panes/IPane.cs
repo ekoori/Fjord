@@ -138,6 +138,16 @@ public interface ITab
     /// the point — it is a bookmark you can already see.
     /// </remarks>
     bool IsLocked { get; set; }
+
+    /// <summary>
+    /// A name the user gave this tab, or null to use the directory's own.
+    /// </summary>
+    /// <remarks>
+    /// It sticks. A tab called "work" stays "work" wherever you navigate, which is what
+    /// makes naming worth doing next to locking — a name that reverted the moment you
+    /// looked at something else would be one you had to keep reapplying.
+    /// </remarks>
+    string? Name { get; set; }
 }
 
 /// <summary>The window's set of tabs.</summary>

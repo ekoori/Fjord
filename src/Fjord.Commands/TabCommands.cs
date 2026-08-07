@@ -116,6 +116,28 @@ public sealed class TabCommands
         workspace.MoveTab(workspace.CurrentIndex, target);
     }
 
+    /// <remarks>
+    /// With no argument it clears the name and the tab goes back to showing its directory,
+    /// which is the only way back and needs no second command.
+    /// </remarks>
+    [Command("tab-rename", Aliases = ["tabrename"], Group = "Tabs", MaxSplit = 0,
+        Description = "Name this tab. With no name, go back to the directory's own.")]
+    public void TabRename(
+        [CommandArgument(Value = CommandValue.Workspace)] IWorkspace workspace,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        string name = "")
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var tab = workspace.Current;
+        var trimmed = name.Trim();
+
+        tab.Name = trimmed.Length == 0 ? null : trimmed;
+        messages.Info(tab.Name is null ? $"Tab shows {tab.Title} again." : $"Tab named {tab.Name}.");
+    }
+
     [Command("tab-move-left", Aliases = ["tabmoveleft"], Group = "Tabs",
         Description = "Swap this tab with the one before it")]
     public void TabMoveLeft(

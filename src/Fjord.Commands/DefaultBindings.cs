@@ -104,6 +104,7 @@ public static class DefaultBindings
                 // the command line rather than run: the user finishes the line. {name}
                 // arrives already quoted, so a filename with spaces stays one argument.
                 ["<F2>"] = ":rename {name}",
+                ["<Ctrl+F2>"] = ":tab-rename ",
                 ["c"] = ":cd ",
                 ["m"] = ":mark-set ",
                 ["'"] = ":cd ",

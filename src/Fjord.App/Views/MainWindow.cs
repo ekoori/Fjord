@@ -37,7 +37,7 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly KeyBindings _bindings;
     private readonly KeyModeRegistry _modeRegistry;
     private readonly InputController _input;
-    private readonly TextBlock _path;
+    private readonly StackPanel _path;
     private readonly TextBlock _status;
     private readonly TextBlock _keys;
     private readonly CommandLine _commandLine;
@@ -49,6 +49,12 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly SessionHost _sessions;
     private readonly TaskPanel _taskPanel;
     private readonly CommandRegistry _registry;
+
+    // Which tab a drag started on, while one is in progress.
+    private int? _dragFrom;
+
+    // What the breadcrumb strip was last built for, so it is not rebuilt on every repaint.
+    private string _breadcrumbPath = string.Empty;
     private readonly CompletionList _keyHints;
     private readonly DispatcherTimer _keyHintDelay;
     private readonly StackPanel _tabStrip;
@@ -207,7 +213,7 @@ public sealed class MainWindow : Window, IMessageSink
             ShowKeyHints();
         };
 
-        _path = Label(_theme.FileText);
+        _path = new StackPanel { Orientation = Orientation.Horizontal };
         _status = Label(_theme.MutedText);
         _keys = Label(_theme.CursorBar);
         _pathBar = Bar(_path);
@@ -686,6 +692,119 @@ public sealed class MainWindow : Window, IMessageSink
         return _registry.Find(name)?.Group ?? string.Empty;
     }
 
+    /// <summary>Which tab position a pointer release lands on, or null when it missed.</summary>
+    private int? DropTargetAt(Point position)
+    {
+        for (var i = 0; i < _tabStrip.Children.Count; i++)
+        {
+            var child = _tabStrip.Children[i];
+            var left = child.Bounds.Left;
+
+            if (position.X >= left && position.X <= left + child.Bounds.Width)
+            {
+                return i;
+            }
+        }
+
+        // Past the last tab means the end, which is what dragging off the right implies.
+        return position.X > 0 && _tabStrip.Children.Count > 0 ? _tabStrip.Children.Count - 1 : null;
+    }
+
+    /// <summary>
+    /// Rebuilds the path bar as one clickable segment per directory.
+    /// </summary>
+    /// <remarks>
+    /// The path was a single label, so the only way up three levels was three presses of h
+    /// or typing the path out. Each segment carries the path up to and including itself, so
+    /// clicking is exactly "go there" with no arithmetic at the click site.
+    /// </remarks>
+    private void RebuildBreadcrumbs(string directory)
+    {
+        if (string.Equals(_breadcrumbPath, directory, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _breadcrumbPath = directory;
+        _path.Children.Clear();
+
+        // A scrapbook label is not a path and has no segments to walk up through.
+        if (directory.Length == 0 || directory.Contains(':') && !Path.IsPathRooted(directory))
+        {
+            _path.Children.Add(Label(_theme.FileText, directory));
+            return;
+        }
+
+        var accumulated = string.Empty;
+        var first = true;
+
+        foreach (var segment in Segments(directory))
+        {
+            accumulated = accumulated.Length == 0 ? segment : Path.Combine(accumulated, segment);
+
+            if (!first)
+            {
+                _path.Children.Add(Label(_theme.MutedText, " " + Path.DirectorySeparatorChar + " "));
+            }
+
+            first = false;
+            _path.Children.Add(Crumb(segment, accumulated));
+        }
+    }
+
+    /// <summary>The parts of a path, with the root — drive or leading slash — kept whole.</summary>
+    private static IEnumerable<string> Segments(string directory)
+    {
+        var root = Path.GetPathRoot(directory) ?? string.Empty;
+
+        if (root.Length > 0)
+        {
+            yield return root;
+        }
+
+        var rest = directory[root.Length..]
+            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var part in rest)
+        {
+            yield return part;
+        }
+    }
+
+    private Control Crumb(string text, string target)
+    {
+        var block = Label(_theme.FileText, text);
+
+        var button = new Border
+        {
+            Child = block,
+            Background = Brushes.Transparent,
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+
+        // Highlighted on hover, so it reads as clickable rather than as a label that
+        // happens to respond.
+        button.PointerEntered += (_, _) => button.Background = _theme.CursorBackground;
+        button.PointerExited += (_, _) => button.Background = Brushes.Transparent;
+
+        button.PointerPressed += (_, _) =>
+        {
+            _list.Focus();
+            Observe(_workspace.ActivePane.NavigateAsync(target));
+        };
+
+        return button;
+    }
+
+    /// <summary>Surfaces a failure from a navigation started by the chrome rather than a command.</summary>
+    private void Observe(Task task) =>
+        _ = task.ContinueWith(
+            t => ((IMessageSink)this).Error(t.Exception!.GetBaseException().Message),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.FromCurrentSynchronizationContext());
+
     private void RebuildTabBar()
     {
         _tabBar.IsVisible = _workspace.Tabs.Count > 1;
@@ -722,10 +841,30 @@ public sealed class MainWindow : Window, IMessageSink
                 Cursor = new Cursor(StandardCursorType.Hand),
             };
 
-            chip.PointerPressed += (_, _) =>
+            chip.PointerPressed += (_, e) =>
             {
                 _workspace.CurrentIndex = index;
+                _dragFrom = index;
                 _list.Focus();
+                e.Pointer.Capture(chip);
+            };
+
+            // Reordering by dragging is decided on release, from what is under the pointer
+            // then. Tracking the drag as it moves would mean reordering the strip under the
+            // cursor mid-gesture, which makes the tab you are holding run away from you.
+            chip.PointerReleased += (_, e) =>
+            {
+                e.Pointer.Capture(null);
+
+                if (_dragFrom is { } from)
+                {
+                    _dragFrom = null;
+
+                    if (DropTargetAt(e.GetPosition(_tabStrip)) is { } to && to != from)
+                    {
+                        _workspace.MoveTab(from, to);
+                    }
+                }
             };
 
             _tabStrip.Children.Add(chip);
@@ -771,18 +910,20 @@ public sealed class MainWindow : Window, IMessageSink
     {
         Background = _theme.Background;
 
-        foreach (var (bar, label, brush) in new[]
-                 {
-                     (_pathBar, _path, _theme.FileText),
-                     (_statusBar, _status, _theme.MutedText),
-                 })
+        foreach (var bar in new[] { _pathBar, _statusBar })
         {
             bar.Background = _theme.Stripe;
             bar.Padding = new Thickness(_theme.LeftPadding, _theme.RowPadding);
-            label.FontFamily = _theme.Typeface.FontFamily;
-            label.FontSize = _theme.FontSize;
-            label.Foreground = brush;
         }
+
+        _status.FontFamily = _theme.Typeface.FontFamily;
+        _status.FontSize = _theme.FontSize;
+        _status.Foreground = _theme.MutedText;
+
+        // The breadcrumbs are rebuilt rather than restyled: they are a strip of controls
+        // whose colours are baked in as they are created, and forcing a rebuild is one line
+        // against a walk over children of three different kinds.
+        _breadcrumbPath = string.Empty;
 
         _tabBar.Background = _theme.Background;
         _taskPanel.Background = _theme.Stripe;
@@ -801,7 +942,7 @@ public sealed class MainWindow : Window, IMessageSink
             return;
         }
 
-        _path.Text = pane.Directory;
+        RebuildBreadcrumbs(pane.Directory);
 
         // Pending keys and mode, exactly as QuteSharp's status bar shows them: a
         // half-typed "g" or an armed operator has to be visible or the app feels stuck.
@@ -838,8 +979,9 @@ public sealed class MainWindow : Window, IMessageSink
         _ => string.Empty,
     };
 
-    private TextBlock Label(IBrush brush) => new()
+    private TextBlock Label(IBrush brush, string? text = null) => new()
     {
+        Text = text,
         FontFamily = _theme.Typeface.FontFamily,
         FontSize = _theme.FontSize,
         Foreground = brush,

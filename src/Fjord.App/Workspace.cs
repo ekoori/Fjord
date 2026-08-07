@@ -282,15 +282,22 @@ public sealed class Workspace : IWorkspace
 
         public bool IsLocked { get; set; }
 
+        public string? Name { get; set; }
+
         public IPane Active => Controller;
 
         public IReadOnlyList<IPane> Panes => [Controller];
 
-        /// <summary>The directory's own name, which is what fits on a tab.</summary>
+        /// <summary>What the tab bar shows: the user's name for it, or the directory's.</summary>
         public string Title
         {
             get
             {
+                if (Name is { Length: > 0 } named)
+                {
+                    return named;
+                }
+
                 var directory = Controller.Directory;
                 if (directory.Length == 0)
                 {

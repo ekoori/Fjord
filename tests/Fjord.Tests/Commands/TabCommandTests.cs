@@ -77,9 +77,11 @@ internal sealed class FakeWorkspace : IWorkspace
 
         public IReadOnlyList<IPane> Panes => [pane];
 
-        public string Title => pane.Directory;
+        public string Title => Name is { Length: > 0 } named ? named : pane.Directory;
 
         public bool IsLocked { get; set; }
+
+        public string? Name { get; set; }
     }
 }
 
@@ -301,5 +303,44 @@ public class TabCommandTests
 
         Assert.Equal(["/b", "/c", "/a"], workspace.Directories);
         Assert.Equal(2, workspace.CurrentIndex);
+    }
+
+    [Fact]
+    public async Task ARenamedTabKeepsItsNameWhereverItGoes()
+    {
+        // The point of naming one next to locking it: "work" stays "work". A name that
+        // reverted on navigation would be one you had to keep reapplying.
+        var parser = Parser();
+        var workspace = new FakeWorkspace("/a");
+
+        parser.Execute("tab-rename work", Context(workspace));
+        Assert.Equal("work", workspace.Current.Title);
+
+        await workspace.Current.Active.NavigateAsync("/somewhere/else");
+        Assert.Equal("work", workspace.Current.Title);
+    }
+
+    [Fact]
+    public void RenamingWithNoNameGoesBackToTheDirectory()
+    {
+        var parser = Parser();
+        var workspace = new FakeWorkspace("/a");
+
+        parser.Execute("tab-rename work", Context(workspace));
+        parser.Execute("tab-rename", Context(workspace));
+
+        Assert.Null(workspace.Current.Name);
+        Assert.Equal("/a", workspace.Current.Title);
+    }
+
+    [Fact]
+    public void ANameOfNothingButSpacesIsNoName()
+    {
+        var parser = Parser();
+        var workspace = new FakeWorkspace("/a");
+
+        parser.Execute("tab-rename    ", Context(workspace));
+
+        Assert.Null(workspace.Current.Name);
     }
 }
