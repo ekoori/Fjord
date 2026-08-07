@@ -134,6 +134,14 @@ public sealed class NavigationCommands
             return pane.NavigateAsync(path);
         }
 
+        // An archive opens as a directory rather than being handed to the OS. Browsing into
+        // one is what the user meant by pressing Enter on it; the OS handler is what :open
+        // is for.
+        if (ArchivePath.IsArchive(entry.Name) && !ArchivePath.IsInside(pane.Directory))
+        {
+            return pane.NavigateAsync(new ArchivePath(path, string.Empty).ToString());
+        }
+
         if (_platform is null)
         {
             messages.Info($"Not a directory: {entry.Name}");
@@ -200,6 +208,18 @@ public sealed class NavigationCommands
             return pane.LeaveVirtualAsync();
         }
 
+        // Going up out of an archive's root lands in the directory holding it, with the
+        // archive selected — the same "up puts the cursor on where you came from" as
+        // anywhere else.
+        if (ArchivePath.Parse(pane.Directory) is { } inside)
+        {
+            return inside.Parent() is { } up
+                ? pane.NavigateAsync(up.ToString())
+                : pane.NavigateAsync(
+                    Path.GetDirectoryName(inside.Archive) ?? inside.Archive,
+                    Path.GetFileName(inside.Archive));
+        }
+
         var parent = Path.GetDirectoryName(pane.Directory.TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
@@ -248,6 +268,15 @@ public sealed class NavigationCommands
                 : Refuse(messages, $"Quickmark {directory} points at {mark.Directory}, which is gone.");
         }
 
+        // Already a location inside an archive: the archive has to exist, but what follows
+        // the bang is checked by reading it rather than by asking the filesystem.
+        if (ArchivePath.Parse(directory) is { } inside)
+        {
+            return File.Exists(inside.Archive)
+                ? pane.NavigateAsync(directory)
+                : Refuse(messages, $"No archive at {inside.Archive}.");
+        }
+
         var expanded = directory.StartsWith('~')
             ? Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -268,6 +297,13 @@ public sealed class NavigationCommands
 
         if (!Directory.Exists(full))
         {
+            // An archive named as a destination opens at its root, so ":cd src.zip" works
+            // the way pressing Enter on it does.
+            if (File.Exists(full) && ArchivePath.IsArchive(full))
+            {
+                return pane.NavigateAsync(new ArchivePath(full, string.Empty).ToString());
+            }
+
             return Refuse(
                 messages,
                 File.Exists(full)
@@ -282,6 +318,79 @@ public sealed class NavigationCommands
     {
         messages.Error(reason);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Copies the selected archive entries out to a real directory.
+    /// </summary>
+    /// <remarks>
+    /// The one thing you cannot do to an archive by pretending it is a directory: paste and
+    /// trash are refused inside one, so this is the way things come out. Defaults to the
+    /// directory holding the archive, which is where you were standing when you went in.
+    /// </remarks>
+    [Command("extract", Group = "Navigation", MaxSplit = 0,
+        Description = "Copy the selected archive entries out to a directory")]
+    public async Task Extract(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Completion = CompletionKind.Directory)] string destination = "")
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        if (ArchivePath.Parse(pane.Directory) is not { } here)
+        {
+            messages.Error("Not inside an archive.");
+            return;
+        }
+
+        var target = destination.Length > 0
+            ? Path.GetFullPath(destination)
+            : Path.GetDirectoryName(here.Archive) ?? ".";
+
+        if (!Directory.Exists(target))
+        {
+            messages.Error($"No directory at {target}.");
+            return;
+        }
+
+        var view = pane.Snapshot?.View ?? default;
+        var rows = pane.Selection.Count > 0 ? pane.Selection.Indices() : [pane.CursorIndex];
+        var extracted = 0;
+
+        foreach (var row in rows)
+        {
+            if (row < 0 || row >= view.Count || view[row].IsDirectory)
+            {
+                // Directories inside an archive are synthesised from entry names and have
+                // nothing to copy. Extracting one whole is a recursive job and a different
+                // command.
+                continue;
+            }
+
+            var name = view[row].Name;
+
+            try
+            {
+                await ArchiveReader
+                    .ExtractAsync(here.Child(name), Path.Combine(target, name))
+                    .ConfigureAwait(true);
+
+                extracted++;
+            }
+            catch (Exception ex) when (ex is IOException
+                                           or UnauthorizedAccessException
+                                           or InvalidDataException)
+            {
+                messages.Error($"Could not extract {name}: {ex.Message}");
+                return;
+            }
+        }
+
+        messages.Info(extracted == 0
+            ? "Nothing to extract; select files rather than folders."
+            : $"Extracted {extracted} to {target}.");
     }
 
     [Command("reload", Group = "Navigation", Description = "Re-read the current directory")]

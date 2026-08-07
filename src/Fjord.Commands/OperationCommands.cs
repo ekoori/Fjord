@@ -59,6 +59,11 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Register)] char register,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        if (PaneTargets.RefuseInsideArchive(pane, messages, "paste"))
+        {
+            return;
+        }
+
         var clipboard = _host.Registers[register];
 
         if (clipboard.IsEmpty)
@@ -152,6 +157,11 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Range)] EntryRange range,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        if (PaneTargets.RefuseInsideArchive(pane, messages, "trash"))
+        {
+            return;
+        }
+
         TrashPaths(PathsIn(pane, range), messages);
     }
 
@@ -165,6 +175,11 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        if (PaneTargets.RefuseInsideArchive(pane, messages, "trash"))
+        {
+            return;
+        }
+
         TrashPaths(PaneTargets.Of(pane), messages);
     }
 
@@ -224,6 +239,11 @@ public sealed class OperationCommands
         string newName,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        if (PaneTargets.RefuseInsideArchive(pane, messages, "rename"))
+        {
+            return;
+        }
+
         if (pane.PathAt(pane.CursorIndex) is not { } path)
         {
             messages.Info("Nothing to rename.");

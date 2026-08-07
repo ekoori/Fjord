@@ -45,6 +45,20 @@ public sealed class DirectoryLister : IDirectoryLister
         ListingOptions options,
         [EnumeratorCancellation] CancellationToken ct)
     {
+        // An archive stands in for a directory here rather than anywhere further up,
+        // because this is the one place that turns a location into entries. Everything
+        // above — the pane, history, the cursor, the selection — then works on an archive
+        // without knowing there is one.
+        if (ArchivePath.Parse(directory) is { } inside)
+        {
+            foreach (var batch in ListArchive(inside, ct))
+            {
+                yield return batch;
+            }
+
+            yield break;
+        }
+
         var channel = Channel.CreateBounded<FileEntry[]>(
             new BoundedChannelOptions(ChannelCapacity)
             {
@@ -151,6 +165,27 @@ public sealed class DirectoryLister : IDirectoryLister
         }
 
         writer.Complete(failure);
+    }
+
+    /// <summary>
+    /// Reads an archive in one go, and hands it over in one batch.
+    /// </summary>
+    /// <remarks>
+    /// No streaming and no ramp. A tar has no central directory, so listing any part of one
+    /// means reading it through anyway, and an archive with enough entries for progressive
+    /// loading to matter is rarer than the code path would be worth.
+    /// </remarks>
+    private static IEnumerable<ReadOnlyMemory<FileEntry>> ListArchive(
+        ArchivePath location, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var entries = ArchiveReader.List(location);
+
+        if (entries.Count > 0)
+        {
+            yield return entries.ToArray();
+        }
     }
 
     /// <summary>

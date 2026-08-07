@@ -1,3 +1,4 @@
+using Fjord.Core.Diagnostics;
 using Fjord.Core.Panes;
 
 namespace Fjord.Commands;
@@ -17,6 +18,30 @@ namespace Fjord.Commands;
 /// </remarks>
 public static class PaneTargets
 {
+    /// <summary>
+    /// Refuses an operation that would change an archive, and says why.
+    /// </summary>
+    /// <returns>True when the pane is inside one and the caller should stop.</returns>
+    /// <remarks>
+    /// Archives are browsable but not writable, and the paths inside one do not exist on
+    /// disk. Without this a trash or a paste would be queued against a path the filesystem
+    /// has never heard of and fail somewhere further down with a message about a directory
+    /// that is really a file — which tells the user nothing about what actually happened.
+    /// </remarks>
+    public static bool RefuseInsideArchive(IPane pane, IMessageSink messages, string verb)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (!Core.FileSystem.ArchivePath.IsInside(pane.Directory))
+        {
+            return false;
+        }
+
+        messages.Error($"Cannot {verb} inside an archive. :extract copies entries out.");
+        return true;
+    }
+
     public static List<string> Of(IPane pane)
     {
         ArgumentNullException.ThrowIfNull(pane);

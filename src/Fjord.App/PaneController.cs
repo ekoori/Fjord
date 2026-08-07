@@ -246,7 +246,12 @@ public sealed class PaneController : IPane
 
         try
         {
-            full = Path.GetFullPath(directory);
+            // Normalising an archive path would fold the part inside the archive against
+            // the filesystem's rules, which are not the archive's. Only the file itself is
+            // a real path.
+            full = ArchivePath.Parse(directory) is { } inside
+                ? (inside with { Archive = Path.GetFullPath(inside.Archive) }).ToString()
+                : Path.GetFullPath(directory);
         }
         catch (Exception ex) when (ex is ArgumentException
                                        or NotSupportedException
