@@ -317,3 +317,100 @@ public class CompletionEngineTests
         Assert.True(new CompletionEngine(registry).Complete(":cd s", 5).IsEmpty);
     }
 }
+
+public class CommandHistoryWindowTests
+{
+    private static CommandHistory Filled(int count)
+    {
+        var history = new CommandHistory();
+
+        for (var i = 0; i < count; i++)
+        {
+            history.Add($"cd dir{i}");
+        }
+
+        return history;
+    }
+
+    [Fact]
+    public void NotWalkingMeansNothingIsCurrent()
+    {
+        // The panel reads this as "at the end": newest entries on screen, nothing
+        // highlighted, because the user is typing rather than choosing.
+        Assert.Null(Filled(3).CurrentIndex);
+    }
+
+    [Fact]
+    public void WalkingBackMovesTheCurrentIndexTowardsTheOldest()
+    {
+        var history = Filled(3);
+
+        history.Previous(string.Empty);
+        Assert.Equal(2, history.CurrentIndex);
+
+        history.Previous(string.Empty);
+        Assert.Equal(1, history.CurrentIndex);
+    }
+
+    [Fact]
+    public void WalkingForwardAgainEndsWithNothingCurrent()
+    {
+        var history = Filled(3);
+
+        history.Previous(string.Empty);
+        history.Next();
+
+        Assert.Null(history.CurrentIndex);
+    }
+
+    [Fact]
+    public void LoadReplacesEverythingAndEndsTheWalk()
+    {
+        var history = Filled(3);
+        history.Previous(string.Empty);
+
+        history.Load(["one", "two"]);
+
+        Assert.Equal(["one", "two"], history.Entries);
+        Assert.Null(history.CurrentIndex);
+    }
+
+    [Fact]
+    public void LoadIgnoresBlankLinesAndTrims()
+    {
+        // The file is the user's to edit by hand, so it will have blank lines in it.
+        var history = new CommandHistory();
+
+        history.Load(["  cd work  ", string.Empty, "   ", "quit"]);
+
+        Assert.Equal(["cd work", "quit"], history.Entries);
+    }
+
+    [Fact]
+    public void LoadTrimsToCapacity()
+    {
+        // A file that grew under a larger limit should not stay large forever.
+        var history = new CommandHistory(capacity: 2);
+
+        history.Load(["one", "two", "three"]);
+
+        Assert.Equal(["two", "three"], history.Entries);
+    }
+
+    [Fact]
+    public void TheWalkReachesEveryEntryHoweverLongTheHistoryIs()
+    {
+        // The panel shows ten rows; the history is longer than that on purpose.
+        var history = Filled(30);
+        var seen = new List<int>();
+
+        for (var i = 0; i < 30; i++)
+        {
+            history.Previous(string.Empty);
+            seen.Add(history.CurrentIndex!.Value);
+        }
+
+        Assert.Equal(29, seen[0]);
+        Assert.Equal(0, seen[^1]);
+    }
+}

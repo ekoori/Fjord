@@ -343,4 +343,22 @@ public class TabCommandTests
 
         Assert.Null(workspace.Current.Name);
     }
+
+    [Fact]
+    public async Task ALockedTabRestoresItsOwnContentsRatherThanDivertingThem()
+    {
+        // The bug this pins: a locked tab diverts navigation into a new tab, and its own
+        // restore is navigation. Locked before the restore ran, the tab pushed its contents
+        // into a fresh tab and came back showing nothing.
+        var workspace = new FakeWorkspace("/a");
+        var tab = workspace.Current;
+
+        // What Workspace.RestoreAsync does: navigate first, lock afterwards.
+        await tab.Active.NavigateAsync("/restored");
+        tab.IsLocked = true;
+
+        Assert.Single(workspace.Tabs);
+        Assert.Equal("/restored", tab.Active.Directory);
+        Assert.True(tab.IsLocked);
+    }
 }

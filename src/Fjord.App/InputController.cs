@@ -171,6 +171,24 @@ public sealed class InputController : IModeHost
     public event EventHandler<string>? CommandLineRequested;
 
     /// <summary>
+    /// Returns to whatever mode the pane implies, after the command line closes.
+    /// </summary>
+    /// <remarks>
+    /// The command line is a mode of its own while it has focus, which is what makes the
+    /// status bar say so and what stops a key meaning two things at once. Leaving it has to
+    /// land in scrapbook mode rather than normal when that is what is showing.
+    /// </remarks>
+    public void LeaveCommandLine(IPane? pane)
+    {
+        if (_modes.Mode == KeyMode.Command)
+        {
+            _modes.EnterMode(KeyMode.Normal);
+        }
+
+        SyncModeToPane(pane);
+    }
+
+    /// <summary>
     /// Runs a line typed into the command line.
     /// </summary>
     /// <remarks>

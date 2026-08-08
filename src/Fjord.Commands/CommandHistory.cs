@@ -37,6 +37,39 @@ public sealed class CommandHistory
     public bool IsWalking => _position >= 0;
 
     /// <summary>
+    /// Where the walk currently sits, as an index into <see cref="Entries"/>.
+    /// </summary>
+    /// <remarks>
+    /// Null when not walking, which the panel shows as "at the end": the newest entries
+    /// are on screen and nothing is highlighted, because the user is typing rather than
+    /// choosing.
+    /// </remarks>
+    public int? CurrentIndex => _position < 0 ? null : _entries.Count - 1 - _position;
+
+    /// <summary>
+    /// Replaces the whole history, newest last.
+    /// </summary>
+    /// <remarks>
+    /// Used when loading from disk. Capacity is applied here as well as on add, so a file
+    /// that grew under an older, larger limit is trimmed on the way in rather than kept
+    /// forever.
+    /// </remarks>
+    public void Load(IEnumerable<string> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        _entries.Clear();
+        _entries.AddRange(entries.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()));
+
+        if (_entries.Count > Capacity)
+        {
+            _entries.RemoveRange(0, _entries.Count - Capacity);
+        }
+
+        Reset();
+    }
+
+    /// <summary>
     /// Records a command that was run.
     /// </summary>
     /// <remarks>

@@ -214,14 +214,21 @@ public sealed class Workspace : IWorkspace
         foreach (var saved in session.Tabs)
         {
             var tab = NewTab();
-
-            // Set before the navigation starts. A locked tab whose lock arrived afterwards
-            // would divert its own restore into a new tab.
             tab.Name = saved.Name;
-            tab.IsLocked = saved.IsLocked;
 
             _tabs.Add(tab);
-            loading.Add(tab.Controller.NavigateAsync(saved.Directory, saved.CursorName));
+
+            // The lock goes on AFTER the restore navigation, not before. A locked tab
+            // diverts navigation into a new tab, and its own restore is navigation — set
+            // first, the tab pushed its contents into a fresh tab and came back empty.
+            var restoring = tab.Controller.NavigateAsync(saved.Directory, saved.CursorName);
+            var locked = saved.IsLocked;
+
+            loading.Add(restoring.ContinueWith(
+                _ => tab.IsLocked = locked,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.FromCurrentSynchronizationContext()));
         }
 
         _current = Math.Clamp(session.ActiveTab, 0, _tabs.Count - 1);

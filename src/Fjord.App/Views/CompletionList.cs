@@ -118,6 +118,20 @@ public sealed class CompletionList : Border
         return Selected;
     }
 
+    /// <summary>
+    /// Highlights a row without the caller having stepped to it.
+    /// </summary>
+    /// <remarks>
+    /// The history panel decides its own selection: it shows a window onto a longer list,
+    /// so which row is current is a property of the walk rather than of the rows on screen.
+    /// </remarks>
+    public void Select(int index)
+    {
+        _selected = index >= 0 && index < _items.Count ? index : -1;
+        Highlight();
+        ScrollSelectedIntoView();
+    }
+
     public void RefreshTheme()
     {
         Background = _theme.Stripe;

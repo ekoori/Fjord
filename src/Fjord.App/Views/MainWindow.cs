@@ -64,8 +64,9 @@ public sealed class MainWindow : Window, IMessageSink
 
     // What the breadcrumb strip was last built for, so it is not rebuilt on every repaint.
     private string _breadcrumbPath = string.Empty;
-    private readonly CompletionList _keyHints;
-    private readonly DispatcherTimer _keyHintDelay;
+
+    // What the command being typed does, shown in the status bar while the line is open.
+    private string _commandUsage = string.Empty;
     private readonly StackPanel _tabStrip;
     private readonly Border _tabBar;
     private readonly ConfigWatcher? _watcher;
@@ -210,18 +211,6 @@ public sealed class MainWindow : Window, IMessageSink
             IsVisible = false,
         };
 
-        _keyHints = new CompletionList(_theme);
-
-        // Delayed, or every "gg" typed at speed flashes a panel on the way past. Long
-        // enough that a user who knows the binding never sees it, short enough that one
-        // who has stopped to think does. Which-key picked 300 ms and it is about right.
-        _keyHintDelay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _keyHintDelay.Tick += (_, _) =>
-        {
-            _keyHintDelay.Stop();
-            ShowKeyHints();
-        };
-
         _path = new StackPanel { Orientation = Orientation.Horizontal };
         _status = Label(_theme.MutedText);
         _keys = Label(_theme.CursorBar);
@@ -241,7 +230,6 @@ public sealed class MainWindow : Window, IMessageSink
         DockPanel.SetDock(_commandLine, Dock.Bottom);
         DockPanel.SetDock(_commandLine.CompletionHost, Dock.Bottom);
         DockPanel.SetDock(_taskPanel, Dock.Bottom);
-        DockPanel.SetDock(_keyHints, Dock.Bottom);
 
         // Order matters: the completion list sits above the command line, which sits above
         // the status bar, and the file list fills what is left.
@@ -250,7 +238,7 @@ public sealed class MainWindow : Window, IMessageSink
             Children =
             {
                 _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost,
-                _keyHints, _taskPanel, new Panel { Children = { scroller, _help } },
+                _taskPanel, new Panel { Children = { scroller, _help } },
             },
         };
 
@@ -267,7 +255,24 @@ public sealed class MainWindow : Window, IMessageSink
             RecordVisit();
         };
         _input.Handled += (_, _) => UpdateChrome();
-        _input.CommandLineRequested += (_, initial) => _commandLine.Open(initial);
+        _input.CommandLineRequested += (_, initial) =>
+        {
+            _input.Modes.EnterMode(KeyMode.Command);
+            _commandLine.Open(initial);
+        };
+
+        // What the command being typed does, in the status bar. noPDF puts it there rather
+        // than in a panel of its own, and that is the better place: the line where messages
+        // already appear is somewhere the eye is, and it costs nothing to dismiss.
+        _commandLine.Usage = name => _registry.Find(name)?.Description;
+        _commandLine.UsageChanged += (_, usage) =>
+        {
+            _commandUsage = usage;
+            UpdateChrome();
+        };
+
+        _commandLine.LoadHistory = LoadCommandHistory;
+        _commandLine.SaveHistory = SaveCommandHistory;
 
         _input.FrameStatsToggled += (_, _) =>
         {
@@ -279,10 +284,15 @@ public sealed class MainWindow : Window, IMessageSink
         _commandLine.Accepted += (_, line) =>
         {
             _list.Focus();
+            _input.LeaveCommandLine(_workspace.ActivePane);
             _input.Execute(line);
         };
 
-        _commandLine.Cancelled += (_, _) => _list.Focus();
+        _commandLine.Cancelled += (_, _) =>
+        {
+            _list.Focus();
+            _input.LeaveCommandLine(_workspace.ActivePane);
+        };
 
         _operations.Changed += (_, _) => _taskPanel.Update(_operations.Active);
 
@@ -640,97 +650,39 @@ public sealed class MainWindow : Window, IMessageSink
 
     /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
     /// <summary>
-    /// Shows what could follow a half-typed binding.
+    /// The command history, kept beside the session database.
     /// </summary>
     /// <remarks>
-    /// The gap this closes: <c>y</c> alone does nothing visible and gives no clue that
-    /// <c>yy</c> exists, so a binding you have not memorised is a binding you cannot find
-    /// from the keyboard. Also covers operator-pending, where the useful answer is the list
-    /// of motions the operator will accept.
+    /// A plain text file rather than a table: it is a list of lines, the user may well want
+    /// to read or clear it by hand, and it relates to nothing else that is stored.
     /// </remarks>
-    private void UpdateKeyHints()
-    {
-        var buffered = _input.Modes.Buffered;
-        var pendingOperator = _input.Modes.PendingOperator is not null;
+    private string CommandHistoryPath => Path.Combine(_paths.Data, "command-history.txt");
 
-        if (buffered.Count == 0 && !pendingOperator)
+    private IReadOnlyList<string> LoadCommandHistory()
+    {
+        try
         {
-            _keyHintDelay.Stop();
-            _keyHints.Hide();
-            return;
+            return File.Exists(CommandHistoryPath) ? File.ReadAllLines(CommandHistoryPath) : [];
         }
-
-        // Restarted on every keystroke, so the delay measures how long the user has been
-        // stuck rather than how long the sequence has been going.
-        _keyHintDelay.Stop();
-        _keyHintDelay.Start();
-    }
-
-    private void ShowKeyHints()
-    {
-        var mode = _input.Modes.Mode;
-        var buffered = _input.Modes.Buffered;
-
-        var items = Continuations(mode, buffered)
-            .Select(c => new CompletionItem(
-                c.Keys.ToString(),
-                DescribeBinding(c.Command),
-                Group(c.Command)))
-            .OrderBy(i => i.Group, StringComparer.Ordinal)
-            .ToList();
-
-        if (items.Count == 0)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _keyHints.Hide();
-            return;
+            _log.LogWarning(ex, "could not read the command history");
+            return [];
         }
-
-        _keyHints.Show(items);
     }
 
-    /// <summary>
-    /// Continuations for a mode and everything it falls back to.
-    /// </summary>
-    /// <remarks>
-    /// A scrapbook that listed only its own four keys would suggest the motions had gone.
-    /// The specific mode's binding for a sequence wins, since that is what pressing it will
-    /// actually do.
-    /// </remarks>
-    private IReadOnlyList<(Core.Keys.KeySequence Keys, string Command)> Continuations(
-        KeyMode mode, Core.Keys.KeySequence buffered)
+    private void SaveCommandHistory(IReadOnlyList<string> entries)
     {
-        var seen = new Dictionary<string, (Core.Keys.KeySequence Keys, string Command)>(StringComparer.Ordinal);
-        var current = mode;
-
-        for (var depth = 0; depth < 8; depth++)
+        try
         {
-            foreach (var candidate in _bindings.Continuations(current, buffered))
-            {
-                seen.TryAdd(candidate.Keys.ToString(), candidate);
-            }
-
-            if (_modeRegistry.FallbackFor(current) is not { } next || next == current)
-            {
-                break;
-            }
-
-            current = next;
+            FjordPaths.EnsureDirectoryFor(CommandHistoryPath);
+            File.WriteAllLines(CommandHistoryPath, entries);
         }
-
-        return [.. seen.Values];
-    }
-
-    /// <summary>What a binding does, in the registry's own words where it has any.</summary>
-    private string DescribeBinding(string command)
-    {
-        var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
-        return _registry.Find(name)?.Description ?? command;
-    }
-
-    private string Group(string command)
-    {
-        var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
-        return _registry.Find(name)?.Group ?? string.Empty;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Losing the history is not worth interrupting the command that just ran.
+            _log.LogWarning(ex, "could not write the command history");
+        }
     }
 
     /// <summary>
@@ -1047,12 +999,11 @@ public sealed class MainWindow : Window, IMessageSink
         var mode = _input.Modes.Mode;
         var modeText = mode == KeyMode.Normal ? string.Empty : $"-- {mode.Name.ToUpperInvariant()} -- ";
         _keys.Text = modeText + _input.Modes.PendingKeys;
-        UpdateKeyHints();
 
         var snapshot = pane.Snapshot;
         if (snapshot is null)
         {
-            _status.Text = _message ?? string.Empty;
+            _status.Text = _commandUsage.Length > 0 ? _commandUsage : _message ?? string.Empty;
             return;
         }
 
@@ -1064,7 +1015,11 @@ public sealed class MainWindow : Window, IMessageSink
         var message = _message is { } m ? $"  {Prefix(_messageLevel)}{m}" : string.Empty;
         var undo = _operations.NextUndoDescription is { } next ? $"  [u: {next}]" : string.Empty;
 
-        _status.Text = $"{position}/{view.Count}{selected}{loading}{error}{message}{undo}";
+        // The usage of the command being typed wins while the line is open: it is the
+        // thing the user is looking for an answer about right now.
+        _status.Text = _commandUsage.Length > 0
+            ? _commandUsage
+            : $"{position}/{view.Count}{selected}{loading}{error}{message}{undo}";
         _status.Foreground = _messageLevel == MessageLevel.Error && _message is not null
             ? _theme.BrokenText
             : _theme.MutedText;

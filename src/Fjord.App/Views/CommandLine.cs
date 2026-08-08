@@ -24,7 +24,21 @@ public sealed class CommandLine : Border
     private readonly CompletionEngine _engine;
     private readonly CommandHistory _history = new();
 
+    /// <summary>
+    /// History rows shown at once.
+    /// </summary>
+    /// <remarks>
+    /// Ten, and the rest reachable by holding Up. A panel tall enough for a hundred
+    /// commands is a panel that covers the listing you are running them against.
+    /// </remarks>
+    private const int HistoryRows = 10;
+
     private CompletionResult _result = CompletionResult.Empty;
+
+    // Whether the panel is showing candidates rather than history, which is what decides
+    // whether Up and Down select or walk.
+    private bool _showingCandidates;
+    private bool _historyLoaded;
 
     /// <summary>
     /// The line as it was before a candidate was applied.
@@ -122,7 +136,7 @@ public sealed class CommandLine : Border
         }
     }
 
-    /// <summary>The popup listing candidates. Hosted by the window above the command line.</summary>
+    /// <summary>The panel above the line: history, or candidates when there are any.</summary>
     public Control CompletionHost => _completions;
 
     /// <summary>Raised when the user accepted a line with Enter.</summary>
@@ -131,19 +145,42 @@ public sealed class CommandLine : Border
     /// <summary>Raised when the user dismissed the command line.</summary>
     public event EventHandler? Cancelled;
 
+    /// <summary>Raised as the line changes, with what the command being typed does.</summary>
+    /// <remarks>
+    /// The hint goes to the status bar rather than into a panel of its own. A line of text
+    /// where messages already appear is somewhere the eye is; a third floating panel was
+    /// one more thing to dismiss.
+    /// </remarks>
+    public event EventHandler<string>? UsageChanged;
+
+    /// <summary>Asked what a command does, for the usage hint. Supplied by the window.</summary>
+    public Func<string, string?>? Usage { get; set; }
+
+    /// <summary>Loads and stores the history across runs. Supplied by the window.</summary>
+    public Func<IReadOnlyList<string>>? LoadHistory { get; set; }
+
+    /// <summary>Persists the history. Supplied by the window.</summary>
+    public Action<IReadOnlyList<string>>? SaveHistory { get; set; }
+
     public bool IsOpen => IsVisible;
 
     /// <summary>
     /// Opens the command line holding <paramref name="initial"/>.
     /// </summary>
     /// <remarks>
-    /// Candidates appear immediately. A binding that opens <c>:cd </c> is asking a
-    /// question, and the answers should be on screen rather than behind a Tab the user has
-    /// to know to press.
+    /// The panel is populated straight away — with candidates when the text asks a question
+    /// and with history otherwise. Opening onto a blank bar and a blank panel would make
+    /// the history a feature you had to already know about.
     /// </remarks>
     public void Open(string initial)
     {
         ArgumentNullException.ThrowIfNull(initial);
+
+        if (!_historyLoaded)
+        {
+            _historyLoaded = true;
+            _history.Load(LoadHistory?.Invoke() ?? []);
+        }
 
         SetText(initial, initial.Length);
 
@@ -161,15 +198,15 @@ public sealed class CommandLine : Border
         _result = CompletionResult.Empty;
 
         SetText(string.Empty, 0);
+        UsageChanged?.Invoke(this, string.Empty);
     }
 
     public void RefreshTheme() => _completions.RefreshTheme();
 
     /// <remarks>
-    /// Up and Down mean two things depending on what is on screen, and the list decides:
-    /// with candidates showing they move the selection, and without them they walk the
-    /// command history. That is how qutebrowser resolves the same collision, and it needs
-    /// no third key.
+    /// Up and Down mean two things and the panel decides which: with candidates showing
+    /// they move the selection, and otherwise they walk the history. That is how
+    /// qutebrowser and noPDF both resolve the collision, and it needs no third key.
     /// </remarks>
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
@@ -188,11 +225,11 @@ public sealed class CommandLine : Border
                 MoveSelection(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
                 break;
 
-            case Key.Up when _completions.IsOpen:
+            case Key.Up when _showingCandidates:
                 MoveSelection(-1);
                 break;
 
-            case Key.Down when _completions.IsOpen:
+            case Key.Down when _showingCandidates:
                 MoveSelection(1);
                 break;
 
@@ -214,13 +251,12 @@ public sealed class CommandLine : Border
 
     /// <remarks>
     /// Enter takes the highlighted candidate rather than running the line, when there is
-    /// one. Two presses of Enter therefore mean "this one, then go", which is what every
-    /// list with a text box above it does — and nothing is selected until the user moves,
-    /// so a line typed in full still runs on the first press.
+    /// one. Nothing is selected until the user moves, so a line typed in full still runs on
+    /// the first press.
     /// </remarks>
     private void Accept()
     {
-        if (_completions.Selected is { } candidate)
+        if (_showingCandidates && _completions.Selected is { } candidate)
         {
             Apply(candidate);
             Refresh();
@@ -229,6 +265,8 @@ public sealed class CommandLine : Border
 
         var line = _input.Text ?? string.Empty;
         _history.Add(line);
+        SaveHistory?.Invoke(_history.Entries);
+
         Close();
         Accepted?.Invoke(this, line);
     }
@@ -236,18 +274,20 @@ public sealed class CommandLine : Border
     private void Walk(bool back)
     {
         var entry = back ? _history.Previous(_input.Text ?? string.Empty) : _history.Next();
+
         if (entry is null)
         {
             return;
         }
 
         SetText(entry, entry.Length);
-        Refresh();
+        ShowHistory();
+        Hint();
     }
 
     private void MoveSelection(int delta)
     {
-        if (!_completions.IsOpen)
+        if (!_showingCandidates)
         {
             return;
         }
@@ -255,34 +295,92 @@ public sealed class CommandLine : Border
         if (_completions.Move(delta) is { } candidate)
         {
             // Applied as it is highlighted, so the line always shows what Enter would run.
-            // The origin is not updated, so moving on to the next candidate replaces this
-            // one rather than appending to it.
             var (text, caret) = _result.Apply(_origin, candidate);
             SetText(text, caret);
         }
     }
 
     /// <summary>
-    /// Recomputes the candidates for the line as it stands.
+    /// Recomputes what the panel shows for the line as it stands.
     /// </summary>
     /// <remarks>
-    /// On every keystroke, which is what makes the list narrow as you type rather than
-    /// being something you summon. The cost is one directory enumeration per character
-    /// while completing a path; the same enumeration Tab always did, and the engine is
-    /// asked only for the word the caret is in.
+    /// Candidates when the word under the caret has any, history otherwise. One panel doing
+    /// both rather than two competing for the same space: they answer the same question —
+    /// "what could this line be" — from different sources.
     /// </remarks>
     private void Refresh()
     {
         _origin = _input.Text ?? string.Empty;
         _result = _engine.Complete(_origin, _input.CaretIndex);
 
-        if (_result.IsEmpty)
+        if (!_result.IsEmpty)
+        {
+            _showingCandidates = true;
+            _completions.Show(_result.Items);
+        }
+        else
+        {
+            ShowHistory();
+        }
+
+        Hint();
+    }
+
+    /// <summary>
+    /// Shows a window onto the history, centred on wherever the walk has reached.
+    /// </summary>
+    /// <remarks>
+    /// A window rather than the lot: the panel is a dozen rows, and a hundred entries would
+    /// bury the command line. Centring on the current entry is what makes Up keep moving
+    /// through history that is longer than the panel.
+    /// </remarks>
+    private void ShowHistory()
+    {
+        _showingCandidates = false;
+
+        var entries = _history.Entries;
+
+        if (entries.Count == 0)
         {
             _completions.Hide();
             return;
         }
 
-        _completions.Show(_result.Items);
+        var current = _history.CurrentIndex;
+        var count = Math.Min(HistoryRows, entries.Count);
+
+        var start = current is { } at
+            ? Math.Clamp(at - (count / 2), 0, Math.Max(0, entries.Count - count))
+            : Math.Max(0, entries.Count - count);
+
+        var window = new List<CompletionItem>(count);
+
+        for (var i = start; i < start + count && i < entries.Count; i++)
+        {
+            window.Add(new CompletionItem(entries[i], string.Empty, "history"));
+        }
+
+        _completions.Show(window);
+
+        if (current is { } selected && selected >= start)
+        {
+            _completions.Select(selected - start);
+        }
+    }
+
+    /// <summary>Tells the status bar what the command being typed does.</summary>
+    private void Hint()
+    {
+        if (Usage is not { } describe)
+        {
+            return;
+        }
+
+        var line = (_input.Text ?? string.Empty).TrimStart().TrimStart(':');
+        var space = line.IndexOf(' ', StringComparison.Ordinal);
+        var name = space < 0 ? line : line[..space];
+
+        UsageChanged?.Invoke(this, name.Length == 0 ? string.Empty : describe(name) ?? string.Empty);
     }
 
     private void Apply(CompletionItem item)
