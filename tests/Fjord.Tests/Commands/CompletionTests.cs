@@ -451,3 +451,79 @@ public class BarePromptTests
         Assert.Equal(registry.Commands.Count(), result.Items.Count);
     }
 }
+
+public class InsertionQuotingTests
+{
+    private static CompletionEngine Engine(IPathCompletionSource paths)
+    {
+        var registry = new CommandRegistry();
+        registry.Register(new NavigationCommands());
+        return new CompletionEngine(registry, paths);
+    }
+
+    private sealed class OneDirectory(string name) : IPathCompletionSource
+    {
+        public IEnumerable<string> List(string directory, bool directoriesOnly) => [name];
+
+        public string Resolve(string path) => path;
+    }
+
+    [Fact]
+    public void AFreeTextCommandGetsItsValueUnquoted()
+    {
+        // :cd takes the rest of the line verbatim and never unquotes it, so a quoted
+        // completion is not protection but corruption: the quoted form goes looking for a
+        // directory whose name starts with an apostrophe.
+        var result = Engine(new OneDirectory("My Documents")).Complete("cd My", 5);
+
+        Assert.Single(result.Items);
+        Assert.Equal("My Documents", result.Items[0].Insertion);
+    }
+
+    [Fact]
+    public void ACommandNameIsNeverQuoted()
+    {
+        var result = Engine(new OneDirectory("x")).Complete("mov", 3);
+
+        Assert.NotEmpty(result.Items);
+        Assert.All(result.Items, i => Assert.Equal(i.Text, i.Insertion));
+    }
+
+    [Fact]
+    public void WhatIsInsertedForCdIsWhatWasMeant()
+    {
+        // The end-to-end shape of the bug: complete, then look at the line it produced.
+        var registry = new CommandRegistry();
+        registry.Register(new NavigationCommands());
+
+        var engine = new CompletionEngine(registry, new OneDirectory("My Documents"));
+        var result = engine.Complete("cd My", 5);
+        var (line, _) = result.Apply("cd My", result.Items[0]);
+
+        Assert.Equal("cd My Documents", line);
+    }
+
+    [Fact]
+    public void APlaceholderInAFreeTextBindingIsNotQuotedEither()
+    {
+        // F2 is ":rename {name}", and :rename takes free text. Quoted, it renamed the file
+        // to include the quotes.
+        var expanded = CommandTemplate.Expand(
+            ":rename {name}",
+            new FakePane("/tmp", "my report.txt"),
+            quoting: false);
+
+        Assert.Equal(":rename my report.txt", expanded);
+    }
+
+    [Fact]
+    public void APlaceholderInALexedBindingStillIs()
+    {
+        var expanded = CommandTemplate.Expand(
+            ":scrap-add {name}",
+            new FakePane("/tmp", "my report.txt"),
+            quoting: true);
+
+        Assert.Contains("'my report.txt'", expanded, StringComparison.Ordinal);
+    }
+}

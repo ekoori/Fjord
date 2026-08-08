@@ -64,6 +64,13 @@ public sealed class CommandParser
 
     public CommandParser(CommandRegistry registry) => _registry = registry;
 
+    /// <summary>The commands this parser resolves against.</summary>
+    /// <remarks>
+    /// Exposed so a caller building a command line can ask how its argument will be read —
+    /// a command taking free text must not be handed quoted values.
+    /// </remarks>
+    public CommandRegistry Registry => _registry;
+
     /// <summary>Parses a line, which may contain several commands separated by <c>;;</c>.</summary>
     public IReadOnlyList<ParsedCommand> Parse(string line, CommandContext? context = null)
     {

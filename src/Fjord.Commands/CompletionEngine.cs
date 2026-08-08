@@ -8,8 +8,20 @@ namespace Fjord.Commands;
 /// </param>
 public sealed record CompletionItem(string Text, string Description = "", string Group = "")
 {
-    /// <summary>What is inserted, quoted if the lexer would otherwise re-split it.</summary>
-    public string Insertion => CommandLexer.Quote(Text);
+    /// <summary>
+    /// Whether inserting this needs quoting.
+    /// </summary>
+    /// <remarks>
+    /// Set by the engine from the command it is completing, because only the command knows.
+    /// A command with <c>MaxSplit</c> takes the rest of the line as free text and never
+    /// unquotes it, so quoting there is not protection but corruption:
+    /// <c>:cd 'C:\Users\igor'</c> looks for a directory whose name begins with an
+    /// apostrophe.
+    /// </remarks>
+    public bool NeedsQuoting { get; init; } = true;
+
+    /// <summary>What is inserted, quoted only where the value will be lexed again.</summary>
+    public string Insertion => NeedsQuoting ? CommandLexer.Quote(Text) : Text;
 }
 
 /// <summary>
@@ -152,14 +164,25 @@ public sealed class CompletionEngine
             return CompletionResult.Empty;
         }
 
+        // A command that takes free text is handed the remainder of the line verbatim, so
+        // nothing it receives is ever unquoted.
+        var quoting = definition.MaxSplit < 0;
+
         return new CompletionResult(
-            CompleteArgument(definition, leading, wordStart, word), replaceStart, word.Length);
+            [.. CompleteArgument(definition, leading, wordStart, word)
+                .Select(i => i with { NeedsQuoting = quoting })],
+            replaceStart,
+            word.Length);
     }
 
+    /// <remarks>
+    /// Command names never need quoting: they cannot contain a space, and a quoted one
+    /// would not resolve.
+    /// </remarks>
     private List<CompletionItem> CompleteCommandName(string word) =>
         _registry.Commands
             .Where(c => c.Name.StartsWith(word, StringComparison.OrdinalIgnoreCase))
-            .Select(c => new CompletionItem(c.Name, c.Description))
+            .Select(c => new CompletionItem(c.Name, c.Description) { NeedsQuoting = false })
             .ToList();
 
     private List<CompletionItem> CompleteArgument(

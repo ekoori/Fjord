@@ -27,11 +27,15 @@ public static class CommandTemplate
     /// Substitutes the placeholders in a command-line binding.
     /// </summary>
     /// <remarks>
-    /// Values are quoted the way the command line itself quotes them, because the text is
-    /// about to be parsed by the same lexer. Without that, renaming a file with a space in
-    /// its name would arrive as two arguments.
+    /// Values are quoted the way the command line quotes them, so a filename with a space
+    /// survives being lexed again — but only where it will be. See <paramref name="quoting"/>.
     /// </remarks>
-    public static string Expand(string command, IPane? pane)
+    /// <param name="quoting">
+    /// Whether the command being built will be lexed again. False for one that takes the
+    /// rest of the line as free text — <c>:rename</c> is the obvious case, where a quoted
+    /// name would rename the file to include the quotes.
+    /// </param>
+    public static string Expand(string command, IPane? pane, bool quoting = true)
     {
         ArgumentNullException.ThrowIfNull(command);
 
@@ -45,10 +49,10 @@ public static class CommandTemplate
         var path = name is null || directory is null ? null : Path.Combine(directory, name);
 
         return command
-            .Replace("{}", Quote(name), StringComparison.Ordinal)
-            .Replace("{name}", Quote(name), StringComparison.Ordinal)
-            .Replace("{path}", Quote(path), StringComparison.Ordinal)
-            .Replace("{dir}", Quote(directory), StringComparison.Ordinal);
+            .Replace("{}", Fill(name, quoting), StringComparison.Ordinal)
+            .Replace("{name}", Fill(name, quoting), StringComparison.Ordinal)
+            .Replace("{path}", Fill(path, quoting), StringComparison.Ordinal)
+            .Replace("{dir}", Fill(directory, quoting), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -62,6 +66,8 @@ public static class CommandTemplate
     ];
 
     /// <summary>An absent value becomes empty rather than the literal placeholder.</summary>
-    private static string Quote(string? value) =>
-        string.IsNullOrEmpty(value) ? string.Empty : CommandLexer.Quote(value);
+    private static string Fill(string? value, bool quoting) =>
+        string.IsNullOrEmpty(value) ? string.Empty
+        : quoting ? CommandLexer.Quote(value)
+        : value;
 }

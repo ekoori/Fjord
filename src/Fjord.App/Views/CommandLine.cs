@@ -165,6 +165,14 @@ public sealed class CommandLine : Border
 
     public bool IsOpen => IsVisible;
 
+    /// <summary>Whether the panel is on screen, whatever the line thinks it is doing.</summary>
+    /// <remarks>
+    /// Asked by the window so Escape can clear a panel that has somehow outlived its line.
+    /// It should never be true while the line is closed; the point is that it is checked
+    /// rather than assumed.
+    /// </remarks>
+    public bool HasPanel => _completions.IsOpen;
+
     /// <summary>
     /// Opens the command line holding <paramref name="initial"/>.
     /// </summary>
@@ -264,7 +272,7 @@ public sealed class CommandLine : Border
                 break;
 
             case Key.Tab:
-                MoveSelection(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+                Commit(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
                 break;
 
             case Key.Up when _showingCandidates:
@@ -305,6 +313,16 @@ public sealed class CommandLine : Border
             return;
         }
 
+        if (!_showingCandidates && _completions.Selected is { } entry)
+        {
+            // A history line chosen with the arrows: put it in the box rather than running
+            // it, so it can be edited before it goes.
+            SetText(entry.Text, entry.Text.Length);
+            _history.Reset();
+            Refresh();
+            return;
+        }
+
         var line = _input.Text ?? string.Empty;
         _history.Add(line);
         SaveHistory?.Invoke(_history.Entries);
@@ -327,18 +345,17 @@ public sealed class CommandLine : Border
         Hint();
     }
 
+    /// <remarks>
+    /// Moves the highlight and leaves the line alone. Writing each candidate into the box
+    /// as it was highlighted meant arrowing through the list rewrote what the user had
+    /// typed, and the rewritten line is what the list is computed from — so moving changed
+    /// the thing you were moving through. Enter or Tab commits; nothing else does.
+    /// </remarks>
     private void MoveSelection(int delta)
     {
-        if (!_showingCandidates)
+        if (_showingCandidates)
         {
-            return;
-        }
-
-        if (_completions.Move(delta) is { } candidate)
-        {
-            // Applied as it is highlighted, so the line always shows what Enter would run.
-            var (text, caret) = _result.Apply(_origin, candidate);
-            SetText(text, caret);
+            _completions.Move(delta);
         }
     }
 
@@ -352,6 +369,15 @@ public sealed class CommandLine : Border
     /// </remarks>
     private void Refresh()
     {
+        // The panel belongs to the line and cannot outlive it. Every route that hides the
+        // line hides this too, and anything that would show it while the line is closed is
+        // a bug that leaves a panel on screen with no way to dismiss it.
+        if (!IsVisible)
+        {
+            _completions.Hide();
+            return;
+        }
+
         _origin = _input.Text ?? string.Empty;
         _result = _engine.Complete(_origin, _input.CaretIndex);
 
@@ -414,6 +440,28 @@ public sealed class CommandLine : Border
         if (current is { } selected && selected >= start)
         {
             _completions.Select(selected - start);
+        }
+    }
+
+    /// <summary>
+    /// Steps the highlight and puts that candidate in the line.
+    /// </summary>
+    /// <remarks>
+    /// What Tab has always meant: move and take. The arrows only move, so the two are not
+    /// the same key wearing a different hat.
+    /// </remarks>
+    private void Commit(int delta)
+    {
+        if (!_showingCandidates)
+        {
+            MoveSelection(delta);
+            return;
+        }
+
+        if (_completions.Move(delta) is { } candidate)
+        {
+            var (text, caret) = _result.Apply(_origin, candidate);
+            SetText(text, caret);
         }
     }
 

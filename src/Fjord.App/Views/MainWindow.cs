@@ -49,6 +49,7 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly SessionHost _sessions;
     private readonly TaskPanel _taskPanel;
     private readonly CommandRegistry _registry;
+    private readonly KeyHints _keyHints;
 
     /// <summary>How far the pointer must travel before a press becomes a drag.</summary>
     /// <remarks>
@@ -211,6 +212,7 @@ public sealed class MainWindow : Window, IMessageSink
             IsVisible = false,
         };
 
+        _keyHints = new KeyHints(_theme);
         _path = new StackPanel { Orientation = Orientation.Horizontal };
         _status = Label(_theme.MutedText);
         _keys = Label(_theme.CursorBar);
@@ -227,18 +229,26 @@ public sealed class MainWindow : Window, IMessageSink
         DockPanel.SetDock(_tabBar, Dock.Top);
         DockPanel.SetDock(_pathBar, Dock.Top);
         DockPanel.SetDock(_statusBar, Dock.Bottom);
-        DockPanel.SetDock(_commandLine, Dock.Bottom);
-        DockPanel.SetDock(_commandLine.CompletionHost, Dock.Bottom);
         DockPanel.SetDock(_taskPanel, Dock.Bottom);
 
-        // Order matters: the completion list sits above the command line, which sits above
-        // the status bar, and the file list fills what is left.
+        // The command line, its panel and the key hints float over the listing rather than
+        // docking under it. Docked, opening the command line took height from the list and
+        // re-laid it out: the rows jumped, and the entry under the cursor moved while the
+        // user was in the middle of typing a command about it. noPDF learned the same thing
+        // and says so in its own layout.
+        var overlay = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Children = { _keyHints, _commandLine.CompletionHost, _commandLine },
+        };
+
         Content = new DockPanel
         {
             Children =
             {
-                _tabBar, _pathBar, _statusBar, _commandLine, _commandLine.CompletionHost,
-                _taskPanel, new Panel { Children = { scroller, _help } },
+                _tabBar, _pathBar, _statusBar, _taskPanel,
+                new Panel { Children = { scroller, _help, overlay } },
             },
         };
 
@@ -578,6 +588,19 @@ public sealed class MainWindow : Window, IMessageSink
         // The command line owns the keyboard while it is open. Tunnelling means this
         // handler runs first, so without the guard every letter typed would be matched
         // against normal-mode bindings instead of reaching the text box.
+        // Escape closes the command line from anywhere, whatever holds focus and whatever
+        // state the bar thinks it is in. A panel with no way to dismiss it is the worst
+        // failure this window has, and it has happened twice; this is the backstop that
+        // does not depend on the part that broke.
+        if (e.Key == Key.Escape && (_commandLine.IsOpen || _commandLine.HasPanel))
+        {
+            _commandLine.Close();
+            _input.LeaveCommandLine(_workspace.ActivePane);
+            _list.Focus();
+            e.Handled = true;
+            return;
+        }
+
         if (_commandLine.IsOpen)
         {
             // Unless it does not actually have the keyboard. Open-but-unfocused swallows
@@ -586,17 +609,7 @@ public sealed class MainWindow : Window, IMessageSink
             // out; anything else puts the focus back where it should have been.
             if (!_commandLine.HasKeyboard)
             {
-                if (e.Key == Key.Escape)
-                {
-                    _commandLine.Close();
-                    _input.LeaveCommandLine(_workspace.ActivePane);
-                    _list.Focus();
-                }
-                else
-                {
-                    _commandLine.FocusInput();
-                }
-
+                _commandLine.FocusInput();
                 e.Handled = true;
             }
 
@@ -669,6 +682,73 @@ public sealed class MainWindow : Window, IMessageSink
     }
 
     /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
+    /// <summary>
+    /// Shows what could follow a half-typed sequence, and nothing otherwise.
+    /// </summary>
+    /// <remarks>
+    /// No timer this time. The chips are one line and appear beside the keys you are
+    /// already typing, so there is nothing to wait out — the delay existed to stop a
+    /// full-height list flashing past, and a full-height list was the wrong shape.
+    /// </remarks>
+    private void UpdateKeyHints()
+    {
+        var buffered = _input.Modes.Buffered;
+        var pending = _input.Modes.PendingOperator is not null;
+
+        // The command line has its own panel; two stacked would be a wall again.
+        if (_commandLine.IsOpen || (buffered.Count == 0 && !pending))
+        {
+            _keyHints.Hide();
+            return;
+        }
+
+        _keyHints.Show(
+        [
+            .. Continuations(_input.Modes.Mode, buffered)
+                .Select(c => (c.Keys.ToString(), Describe(c.Command)))
+                .OrderBy(c => c.Item1, StringComparer.Ordinal),
+        ]);
+    }
+
+    /// <summary>
+    /// Continuations for a mode and everything it falls back to.
+    /// </summary>
+    /// <remarks>
+    /// A scrapbook that listed only its own four keys would suggest the motions had gone.
+    /// The specific mode's binding for a sequence wins, since that is what pressing it will
+    /// actually do.
+    /// </remarks>
+    private IReadOnlyList<(Core.Keys.KeySequence Keys, string Command)> Continuations(
+        KeyMode mode, Core.Keys.KeySequence buffered)
+    {
+        var seen = new Dictionary<string, (Core.Keys.KeySequence Keys, string Command)>(StringComparer.Ordinal);
+        var current = mode;
+
+        for (var depth = 0; depth < 8; depth++)
+        {
+            foreach (var candidate in _bindings.Continuations(current, buffered))
+            {
+                seen.TryAdd(candidate.Keys.ToString(), candidate);
+            }
+
+            if (_modeRegistry.FallbackFor(current) is not { } next || next == current)
+            {
+                break;
+            }
+
+            current = next;
+        }
+
+        return [.. seen.Values];
+    }
+
+    /// <summary>What a binding does, named as briefly as a chip allows.</summary>
+    private string Describe(string command)
+    {
+        var name = (command.StartsWith(':') ? command[1..] : command).Split(' ')[0];
+        return _registry.Find(name)?.Name ?? name;
+    }
+
     /// <summary>
     /// The command history, kept beside the session database.
     /// </summary>
@@ -1019,6 +1099,7 @@ public sealed class MainWindow : Window, IMessageSink
         var mode = _input.Modes.Mode;
         var modeText = mode == KeyMode.Normal ? string.Empty : $"-- {mode.Name.ToUpperInvariant()} -- ";
         _keys.Text = modeText + _input.Modes.PendingKeys;
+        UpdateKeyHints();
 
         var snapshot = pane.Snapshot;
         if (snapshot is null)
@@ -1030,7 +1111,11 @@ public sealed class MainWindow : Window, IMessageSink
         var view = snapshot.View;
         var position = view.Count == 0 ? "0" : (_list.CursorIndex + 1).ToString(CultureInfo.InvariantCulture);
         var selected = _list.Selection.Count > 0 ? $"  [{_list.Selection.Count} selected]" : string.Empty;
-        var loading = snapshot.IsComplete ? string.Empty : "  loading…";
+        // Says what it is counting. "loading…" on its own left the user with no idea
+        // whether anything was happening or how much of it was left.
+        var loading = snapshot.IsComplete
+            ? string.Empty
+            : $"  loading {view.Count:N0}…";
         var error = snapshot.Error is { } ex ? $"  [{ex.GetType().Name}: {ex.Message}]" : string.Empty;
         var message = _message is { } m ? $"  {Prefix(_messageLevel)}{m}" : string.Empty;
         var undo = _operations.NextUndoDescription is { } next ? $"  [u: {next}]" : string.Empty;

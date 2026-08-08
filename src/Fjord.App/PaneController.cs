@@ -596,8 +596,13 @@ public sealed class PaneController : IPane
                 clock.ElapsedMilliseconds);
             return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Everything, not a list. An uncaught one leaves the snapshot un-completed, and
+            // an un-completed snapshot is the status bar saying "loading…" for the rest of
+            // the session with nothing to explain it. A corrupt archive raised
+            // InvalidDataException and did exactly that. Whatever went wrong, the listing
+            // is over and the pane has to say so.
             snapshot.Complete(ex);
             _log.LogWarning(ex, "could not list {Directory}", snapshot.Directory);
         }

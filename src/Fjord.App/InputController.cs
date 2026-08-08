@@ -351,7 +351,12 @@ public sealed class InputController : IModeHost
             // command line holding that text for the user to finish or confirm.
             if (CommandTemplate.IsCommandLine(result.Command!))
             {
-                EnterCommandLine(CommandTemplate.Expand(result.Command!, pane));
+                // Whether the placeholders are quoted depends on the command they are being
+                // written into, and only the registry knows which take free text.
+                var name = result.Command![1..].Split(' ')[0];
+                var quoting = _parser.Registry.Find(name)?.MaxSplit < 0;
+
+                EnterCommandLine(CommandTemplate.Expand(result.Command!, pane, quoting));
                 return;
             }
 
