@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Fjord.Commands;
 
 namespace Fjord.App.Views;
@@ -186,9 +187,50 @@ public sealed class CommandLine : Border
 
         IsVisible = true;
         _history.Reset();
+        Refresh();
+
+        FocusInput();
+    }
+
+    /// <summary>Whether the text box actually has the keyboard.</summary>
+    /// <remarks>
+    /// The window asks before handing keys over. Open-but-not-focused is a state that
+    /// swallows every key: the window defers to the command line, and the command line
+    /// never sees anything.
+    /// </remarks>
+    public bool HasKeyboard => _input.IsFocused;
+
+    /// <summary>
+    /// Puts the keyboard in the text box, retrying after layout.
+    /// </summary>
+    /// <remarks>
+    /// Focus fails on a control that has only just become visible, because it is not yet
+    /// realised. The first attempt covers the common case, and the posted one covers the
+    /// open that follows a layout change — showing the candidate panel is one. Without the
+    /// retry the bar could open with nothing focused and eat every key until the process
+    /// was killed.
+    /// </remarks>
+    public void FocusInput()
+    {
+        if (!IsVisible)
+        {
+            return;
+        }
 
         _input.Focus();
-        Refresh();
+
+        if (!_input.IsFocused)
+        {
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    if (IsVisible)
+                    {
+                        _input.Focus();
+                    }
+                },
+                DispatcherPriority.Input);
+        }
     }
 
     public void Close()
@@ -313,7 +355,11 @@ public sealed class CommandLine : Border
         _origin = _input.Text ?? string.Empty;
         _result = _engine.Complete(_origin, _input.CaretIndex);
 
-        if (!_result.IsEmpty)
+        // An empty line matches every command, and sixty of them is a wall of text rather
+        // than a suggestion. Until something has been typed the useful answer is what you
+        // ran last, so history holds the panel and candidates take over on the first
+        // keystroke.
+        if (!_result.IsEmpty && !IsBare(_origin))
         {
             _showingCandidates = true;
             _completions.Show(_result.Items);
@@ -325,6 +371,9 @@ public sealed class CommandLine : Border
 
         Hint();
     }
+
+    /// <summary>Whether the line is still just its prompt, with nothing typed after it.</summary>
+    private static bool IsBare(string line) => line.TrimStart().TrimStart(':', '/').Trim().Length == 0;
 
     /// <summary>
     /// Shows a window onto the history, centred on wherever the walk has reached.

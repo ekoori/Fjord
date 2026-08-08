@@ -580,6 +580,26 @@ public sealed class MainWindow : Window, IMessageSink
         // against normal-mode bindings instead of reaching the text box.
         if (_commandLine.IsOpen)
         {
+            // Unless it does not actually have the keyboard. Open-but-unfocused swallows
+            // everything — this handler defers, and the text box never sees the key — so
+            // the bar sits there with its panel up and no key will close it. Escape gets
+            // out; anything else puts the focus back where it should have been.
+            if (!_commandLine.HasKeyboard)
+            {
+                if (e.Key == Key.Escape)
+                {
+                    _commandLine.Close();
+                    _input.LeaveCommandLine(_workspace.ActivePane);
+                    _list.Focus();
+                }
+                else
+                {
+                    _commandLine.FocusInput();
+                }
+
+                e.Handled = true;
+            }
+
             return;
         }
 

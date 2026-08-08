@@ -1,5 +1,6 @@
 using Fjord.Commands;
 using Fjord.Core.FileSystem;
+using Fjord.Core.Panes;
 using Fjord.Core.Storage;
 
 namespace Fjord.App;
@@ -37,10 +38,40 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
             // where its path would be, and the tab comes back pointed at the real place it
             // was opened from.
             tabs.Add(new SavedTab(
-                pane.RestorableDirectory, pane.CursorName, selection!, tab.IsLocked, tab.Name));
+                Restorable(pane), pane.CursorName, selection!, tab.IsLocked, tab.Name));
         }
 
         return new SavedSession(name, tabs, _workspace.CurrentIndex);
+    }
+
+    /// <summary>
+    /// A directory a future launch can actually open.
+    /// </summary>
+    /// <remarks>
+    /// Decided from what the pane observed rather than from the shape of the string. A
+    /// scrapbook label saved as a directory once — <c>scrapbook:default</c> — and from then
+    /// on it was self-repairing in the worst sense: resolved against the working directory
+    /// on the next launch, it failed to list, and the failed pane saved the now-absolute
+    /// path straight back. Testing the string could not catch that, because by the second
+    /// launch it was a perfectly well-formed path to nothing.
+    /// <para>
+    /// A pane whose listing failed has nothing worth restoring, so home is saved instead.
+    /// That does mean a tab on an unplugged drive comes back at home rather than waiting
+    /// for the drive, which is the right way round: one is an inconvenience, the other is a
+    /// session that never recovers.
+    /// </para>
+    /// </remarks>
+    private static string Restorable(IPane pane)
+    {
+        var directory = pane.RestorableDirectory;
+
+        var usable = Path.IsPathRooted(directory)
+            && pane.Snapshot?.Error is null
+            && !ArchivePath.IsInside(directory);
+
+        return usable
+            ? directory
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
     public async Task RestoreAsync(SavedSession session)

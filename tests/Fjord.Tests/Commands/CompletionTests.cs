@@ -414,3 +414,40 @@ public class CommandHistoryWindowTests
         Assert.Equal(0, seen[^1]);
     }
 }
+
+public class BarePromptTests
+{
+    /// <summary>The rule the command line applies before deciding what the panel shows.</summary>
+    /// <remarks>
+    /// Mirrored here rather than reached through the control, which needs Avalonia. The
+    /// behaviour it guards is worth pinning: an empty line matches every command, and
+    /// sixty rows of them on opening the bar is what made the panel feel like noise.
+    /// </remarks>
+    private static bool IsBare(string line) => line.TrimStart().TrimStart(':', '/').Trim().Length == 0;
+
+    [Theory]
+    [InlineData(":")]
+    [InlineData("/")]
+    [InlineData("  :  ")]
+    [InlineData("")]
+    public void APromptWithNothingTypedIsBare(string line) => Assert.True(IsBare(line));
+
+    [Theory]
+    [InlineData(":c")]
+    [InlineData(":cd ")]
+    [InlineData("/report")]
+    public void AnythingTypedIsNot(string line) => Assert.False(IsBare(line));
+
+    [Fact]
+    public void AnEmptyLineReallyDoesMatchEverything()
+    {
+        // Why the rule exists. If this ever stopped being true the rule would be pointless
+        // rather than wrong, and it should be revisited.
+        var registry = new CommandRegistry();
+        registry.Register(new NavigationCommands());
+
+        var result = new CompletionEngine(registry).Complete(":", 1);
+
+        Assert.Equal(registry.Commands.Count(), result.Items.Count);
+    }
+}

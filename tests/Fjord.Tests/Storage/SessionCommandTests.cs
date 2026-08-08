@@ -472,3 +472,38 @@ public class ScrapbookCommandTests
         storage.Dispose();
     }
 }
+
+public class RestorableDirectoryTests
+{
+    /// <summary>The rule SessionHost applies before writing a tab's directory.</summary>
+    /// <remarks>
+    /// Mirrored rather than reached through SessionHost, which needs a workspace and a
+    /// window. Worth pinning because the failure repaired itself into every later session:
+    /// a label saved as a directory resolves against the working directory on the next
+    /// launch, fails to list, and is saved again from the failed pane.
+    /// </remarks>
+    private static string Restorable(string directory) =>
+        Path.IsPathRooted(directory)
+            ? directory
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    [Fact]
+    public void ARealPathIsKept()
+    {
+        var path = Path.GetFullPath(Path.GetTempPath());
+
+        Assert.Equal(path, Restorable(path));
+    }
+
+    [Theory]
+    [InlineData("scrapbook:default")]
+    [InlineData("scrapbooks")]
+    [InlineData("")]
+    public void ALabelIsReplacedWithSomewhereReal(string label)
+    {
+        var restored = Restorable(label);
+
+        Assert.True(Path.IsPathRooted(restored));
+        Assert.NotEqual(label, restored);
+    }
+}
