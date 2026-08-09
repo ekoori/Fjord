@@ -1,3 +1,4 @@
+using Fjord.Core.FileSystem;
 using Fjord.Core.Panes;
 
 namespace Fjord.App;
@@ -116,7 +117,7 @@ public sealed class Workspace : IWorkspace
     {
         var tab = new Tab(_createPane());
 
-        tab.Controller.Redirect = (directory, selectName) =>
+        tab.Controller.Redirect = show =>
         {
             if (!tab.IsLocked)
             {
@@ -126,13 +127,19 @@ public sealed class Workspace : IWorkspace
             // The new tab is not itself locked, so browsing on from it behaves normally.
             // Opened beside the tab it came from rather than at the end, which is where
             // the eye already is.
-            var opened = OpenTab(directory, NewTabPosition.AfterCurrent);
+            var opened = NewTab();
+            var index = Math.Min(_current + 1, _tabs.Count);
 
-            if (selectName is not null && opened is Tab created)
-            {
-                _ = created.Controller.MoveCursorToName(selectName);
-            }
+            _tabs.Insert(index, opened);
+            _tabs[_current].Controller.Deactivate();
+            _current = index;
+            opened.Controller.Activate();
 
+            // Fire and forget, like every other navigation the workspace starts: the pane
+            // reports its own failures and the caller is a key press that has finished.
+            _ = show(opened.Controller);
+
+            Changed?.Invoke(this, EventArgs.Empty);
             return true;
         };
 
@@ -215,6 +222,13 @@ public sealed class Workspace : IWorkspace
         {
             var tab = NewTab();
             tab.Name = saved.Name;
+
+            // Before the listing starts, so the entries arrive in the order the tab was
+            // left in rather than being sorted once and then re-sorted.
+            if (saved.Sort is { } sort)
+            {
+                tab.Controller.RestoreOrder(sort, saved.Filter ?? FilterSpec.Default);
+            }
 
             _tabs.Add(tab);
 

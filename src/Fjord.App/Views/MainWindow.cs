@@ -258,6 +258,10 @@ public sealed class MainWindow : Window, IMessageSink
         // is what will let Escape leave the command line once it has a TextBox.
         AddHandler(KeyDownEvent, OnPreviewKeyDown, RoutingStrategies.Tunnel);
 
+        // Bubbling, not tunnelling: by the time a press reaches the window every control
+        // that wanted it has had it, so what is left is genuinely background.
+        AddHandler(PointerPressedEvent, OnBackgroundPressed, RoutingStrategies.Bubble);
+
         _workspace.Changed += (_, _) =>
         {
             RebuildTabBar();
@@ -660,7 +664,12 @@ public sealed class MainWindow : Window, IMessageSink
         // Reorders what is already loaded; no directory is re-read.
         foreach (var tab in _workspace.Tabs)
         {
-            tab.Active.SetOrder(_config.ToSortSpec(), _config.ToFilterSpec());
+            // Only panes that never chose an order of their own. Saving the config should
+            // not undo a tab the user deliberately sorted by size.
+            if (tab.Active is PaneController pane)
+            {
+                pane.ApplyDefaultOrder(_config.ToSortSpec(), _config.ToFilterSpec());
+            }
         }
 
         _list.RefreshTheme();
@@ -786,6 +795,41 @@ public sealed class MainWindow : Window, IMessageSink
     }
 
     /// <summary>
+    /// Moves the window when the press landed on nothing that wanted it.
+    /// </summary>
+    /// <remarks>
+    /// The whole surface drags: the tab bar's empty space, the path bar, the status bar and
+    /// the listing. There is nothing to aim for, which matters more here than in most
+    /// windows because the title bar is the one piece of chrome a keyboard-driven file
+    /// manager gives no other reason to look at.
+    /// <para>
+    /// Anything interactive marks the event handled — a tab chip, a breadcrumb, a
+    /// completion row, the text box — and this never sees it. That is why the handler
+    /// bubbles rather than tunnels, and why it checks rather than guessing at coordinates.
+    /// </para>
+    /// </remarks>
+    private void OnBackgroundPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Handled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        // A double click is the system's "maximise", and starting a drag eats it.
+        if (e.ClickCount > 1)
+        {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+
+            e.Handled = true;
+            return;
+        }
+
+        BeginMoveDrag(e);
+    }
+
+    /// <summary>
     /// Shows a tab as picked up, and where it would land.
     /// </summary>
     /// <remarks>
@@ -908,10 +952,11 @@ public sealed class MainWindow : Window, IMessageSink
         button.PointerEntered += (_, _) => button.Background = _theme.CursorBackground;
         button.PointerExited += (_, _) => button.Background = Brushes.Transparent;
 
-        button.PointerPressed += (_, _) =>
+        button.PointerPressed += (_, e) =>
         {
             _list.Focus();
             Observe(_workspace.ActivePane.NavigateAsync(target));
+            e.Handled = true;
         };
 
         return button;
@@ -968,6 +1013,9 @@ public sealed class MainWindow : Window, IMessageSink
                 _dragOrigin = e.GetPosition(_tabStrip);
                 _list.Focus();
                 e.Pointer.Capture(chip);
+
+                // Or the window would start moving under a tab being dragged to reorder.
+                e.Handled = true;
             };
 
             // Reordering is decided on release, from what is under the pointer then.

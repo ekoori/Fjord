@@ -11,12 +11,20 @@ namespace Fjord.Core.Storage;
 /// again every launch otherwise.
 /// </param>
 /// <param name="Name">The name the user gave the tab, or null for the directory's own.</param>
+/// <param name="Sort">
+/// How the tab was ordered, or null when it never chose and should take the configured
+/// default. The distinction matters on the way back in: a tab that inherited the default
+/// should keep inheriting it, and one that did not should not be talked out of its choice.
+/// </param>
+/// <param name="Filter">What the tab was showing, on the same terms.</param>
 public sealed record SavedTab(
     string Directory,
     string? CursorName,
     IReadOnlyList<string> Selection,
     bool IsLocked = false,
-    string? Name = null);
+    string? Name = null,
+    FileSystem.SortSpec? Sort = null,
+    FileSystem.FilterSpec? Filter = null);
 
 /// <summary>A session: what the window looked like.</summary>
 public sealed record SavedSession(string Name, IReadOnlyList<SavedTab> Tabs, int ActiveTab)

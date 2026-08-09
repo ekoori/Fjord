@@ -39,15 +39,19 @@ public sealed class PaneController : IPane
     private readonly Dictionary<string, VirtualListing> _virtualListings = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Given first refusal on every navigation to a different directory.
+    /// Given first refusal on anything that would change what this pane shows.
     /// </summary>
     /// <remarks>
     /// How a locked tab works. The pane knows nothing about tabs, so the workspace supplies
-    /// this and answers true when it handled the navigation somewhere else. Putting it here
-    /// rather than in each navigation command means every route out — Enter, h, :cd, a
-    /// quickmark, history — goes through the same door.
+    /// this and answers true when it took the work somewhere else.
+    /// <para>
+    /// It is handed the change as a delegate rather than a directory, because not every
+    /// change is a directory: opening a scrapbook has paths, notes and an open handler to
+    /// carry with it. A signature that could only describe a path meant scrapbooks quietly
+    /// ignored the lock and replaced the listing a tab was pinned to.
+    /// </para>
     /// </remarks>
-    public Func<string, string?, bool>? Redirect { get; set; }
+    public Func<Func<PaneController, Task>, bool>? Redirect { get; set; }
 
     // State held while this pane is not the one on screen. One FileListView serves every
     // tab, so an inactive pane cannot leave its cursor and selection there; it keeps them
@@ -174,6 +178,31 @@ public sealed class PaneController : IPane
         _isActive = false;
     }
 
+    /// <summary>
+    /// Whether this pane has been given an order of its own.
+    /// </summary>
+    /// <remarks>
+    /// The difference between a tab that chose and one that inherited. A configuration
+    /// reload re-applies the default to every pane, which is right for a pane that never
+    /// chose and wrong for one that did — sorting one tab by size and then saving the
+    /// config used to put it back to name.
+    /// </remarks>
+    public bool HasOwnOrder { get; private set; }
+
+    /// <summary>
+    /// Applies the configured default, unless this pane has an order of its own.
+    /// </summary>
+    public void ApplyDefaultOrder(SortSpec sort, FilterSpec filter)
+    {
+        if (!HasOwnOrder)
+        {
+            SetOrder(sort, filter, remember: false);
+        }
+    }
+
+    /// <summary>Restores an order the pane had in a previous session.</summary>
+    public void RestoreOrder(SortSpec sort, FilterSpec filter) => SetOrder(sort, filter);
+
     public string? CursorName => CurrentCursorName();
 
     public void MoveCursor(int delta)
@@ -290,7 +319,7 @@ public sealed class PaneController : IPane
         // unusable.
         if (!string.Equals(full, Directory, StringComparison.Ordinal)
             && Redirect is { } redirect
-            && redirect(full, selectName))
+            && redirect(pane => pane.NavigateAsync(full, selectName)))
         {
             return;
         }
@@ -369,6 +398,16 @@ public sealed class PaneController : IPane
         Func<string, Task>? open = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
+
+        // Opening a scrapbook in a locked tab goes to a new one, the same as walking into
+        // a directory would. Refreshing the scrapbook already showing is not a move and
+        // must not spawn anything — that is what a note or a removal does.
+        if (!string.Equals(Directory, label, StringComparison.Ordinal)
+            && Redirect is { } redirect
+            && redirect(pane => pane.ShowVirtualAsync(label, paths, annotations, open)))
+        {
+            return;
+        }
 
         // Where Escape and h go back to. Kept separately from history because those keys
         // mean "leave this view", which is not the same as "one step back" once you have
@@ -495,8 +534,15 @@ public sealed class PaneController : IPane
     public Task ForwardAsync(int count = 1) => GoAsync(History.Forward(count));
 
     /// <summary>Changes sort or filter, re-ordering what is already loaded without re-reading.</summary>
-    public void SetOrder(SortSpec sort, FilterSpec filter)
+    public void SetOrder(SortSpec sort, FilterSpec filter) => SetOrder(sort, filter, remember: true);
+
+    /// <param name="remember">
+    /// Whether this counts as the pane choosing. False when the configured default is being
+    /// applied, so a later reload can still update a pane that never chose for itself.
+    /// </param>
+    private void SetOrder(SortSpec sort, FilterSpec filter, bool remember)
     {
+        HasOwnOrder |= remember;
         Sort = sort;
         Filter = filter;
 

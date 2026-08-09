@@ -1,3 +1,4 @@
+using Fjord.Core.FileSystem;
 using Fjord.Core.Navigation;
 using Fjord.Core.Storage;
 using Fjord.Storage;
@@ -219,6 +220,84 @@ public class SqliteStorageTests : IDisposable
         Assert.Equal("work", loaded.Tabs[0].Name);
         Assert.False(loaded.Tabs[1].IsLocked);
         Assert.Null(loaded.Tabs[1].Name);
+    }
+
+    [Fact]
+    public void ATabsOwnSortOrderComesBack()
+    {
+        // Per tab, not per app: sorting one tab by size is a statement about that tab, and
+        // having to make it again every launch is most of the value gone.
+        _storage.SaveSession(new SavedSession(
+            "s",
+            [
+                new SavedTab(
+                    "/work", null, [],
+                    Sort: new SortSpec(SortKey.Size, Descending: true, DirectoriesFirst: false, Natural: false),
+                    Filter: new FilterSpec(ShowHidden: true)),
+            ],
+            0));
+
+        var tab = _storage.LoadSession("s")!.Tabs[0];
+
+        Assert.NotNull(tab.Sort);
+        Assert.Equal(SortKey.Size, tab.Sort!.Key);
+        Assert.True(tab.Sort.Descending);
+        Assert.False(tab.Sort.DirectoriesFirst);
+        Assert.False(tab.Sort.Natural);
+        Assert.True(tab.Filter!.ShowHidden);
+    }
+
+    [Fact]
+    public void ATabThatNeverChoseComesBackWithoutOne()
+    {
+        // Null rather than a copy of today's default. A tab that inherited should keep
+        // inheriting, or changing the configured sort would stop reaching it.
+        _storage.SaveSession(new SavedSession("s", [new SavedTab("/work", null, [])], 0));
+
+        var tab = _storage.LoadSession("s")!.Tabs[0];
+
+        Assert.Null(tab.Sort);
+        Assert.Null(tab.Filter);
+    }
+
+    [Fact]
+    public void TabsKeepTheirOwnOrdersSeparately()
+    {
+        _storage.SaveSession(new SavedSession(
+            "s",
+            [
+                new SavedTab("/a", null, [], Sort: new SortSpec(SortKey.Size), Filter: FilterSpec.Default),
+                new SavedTab("/b", null, []),
+                new SavedTab("/c", null, [], Sort: new SortSpec(SortKey.Modified), Filter: FilterSpec.Default),
+            ],
+            0));
+
+        var tabs = _storage.LoadSession("s")!.Tabs;
+
+        Assert.Equal(SortKey.Size, tabs[0].Sort!.Key);
+        Assert.Null(tabs[1].Sort);
+        Assert.Equal(SortKey.Modified, tabs[2].Sort!.Key);
+    }
+
+    [Fact]
+    public void ASessionFromBeforeOrdersWereStoredStillLoads()
+    {
+        // The migration's promise: an existing session has no order columns, and every tab
+        // in it should come back inheriting rather than pinned to whatever the config said
+        // at upgrade time.
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "fjord.db");
+
+        using (var older = new SqliteStorage(path))
+        {
+            older.SaveSession(new SavedSession("s", [new SavedTab("/work", null, [])], 0));
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        using var upgraded = new SqliteStorage(path);
+
+        Assert.Null(upgraded.LoadSession("s")!.Tabs[0].Sort);
     }
 
     // ---- Marks

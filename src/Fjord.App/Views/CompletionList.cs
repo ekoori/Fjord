@@ -161,7 +161,14 @@ public sealed class CompletionList : Border
 
             var index = i;
             var row = Row(item);
-            row.PointerPressed += (_, _) => Chosen?.Invoke(this, _items[index]);
+            row.PointerPressed += (_, e) =>
+            {
+                Chosen?.Invoke(this, _items[index]);
+
+                // Handled, or the press falls through to the window and drags it while the
+                // user is picking from a list.
+                e.Handled = true;
+            };
 
             _itemControls.Add(row);
             _rows.Children.Add(row);

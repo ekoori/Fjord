@@ -1,3 +1,4 @@
+using Fjord.Core.FileSystem;
 using Fjord.Core.Navigation;
 using Fjord.Core.Storage;
 using Microsoft.Data.Sqlite;
@@ -21,7 +22,7 @@ public sealed class SqliteStorage : IStorage, IDisposable
     /// <summary>
     /// Bumped when the schema changes; <see cref="Migrate"/> applies everything newer.
     /// </summary>
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
 
     private readonly SqliteConnection _connection;
 
@@ -91,8 +92,10 @@ public sealed class SqliteStorage : IStorage, IDisposable
             Execute(
                 """
                 INSERT INTO session_tabs
-                    (session_name, position, directory, cursor_name, selection, locked, tab_name)
-                VALUES ($name, $position, $directory, $cursor, $selection, $locked, $tabName);
+                    (session_name, position, directory, cursor_name, selection, locked, tab_name,
+                     sort_key, sort_desc, dirs_first, natural_sort, show_hidden)
+                VALUES ($name, $position, $directory, $cursor, $selection, $locked, $tabName,
+                        $sortKey, $sortDesc, $dirsFirst, $natural, $hidden);
                 """,
                 transaction,
                 ("$name", session.Name),
@@ -101,7 +104,15 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 ("$cursor", (object?)tab.CursorName ?? DBNull.Value),
                 ("$selection", string.Join('\n', tab.Selection)),
                 ("$locked", tab.IsLocked ? 1 : 0),
-                ("$tabName", (object?)tab.Name ?? DBNull.Value));
+                ("$tabName", (object?)tab.Name ?? DBNull.Value),
+
+                // Null when the tab never chose an order of its own, which is how the
+                // restore knows to leave it inheriting the configured default.
+                ("$sortKey", (object?)tab.Sort?.Key.ToString() ?? DBNull.Value),
+                ("$sortDesc", (object?)(tab.Sort?.Descending == true ? 1 : 0) ?? DBNull.Value),
+                ("$dirsFirst", (object?)(tab.Sort?.DirectoriesFirst == true ? 1 : 0) ?? DBNull.Value),
+                ("$natural", (object?)(tab.Sort?.Natural == true ? 1 : 0) ?? DBNull.Value),
+                ("$hidden", (object?)(tab.Filter?.ShowHidden == true ? 1 : 0) ?? DBNull.Value));
         }
 
         transaction.Commit();
@@ -122,7 +133,9 @@ public sealed class SqliteStorage : IStorage, IDisposable
 
         using var command = Command(
             """
-            SELECT directory, cursor_name, selection, locked, tab_name FROM session_tabs
+            SELECT directory, cursor_name, selection, locked, tab_name,
+                   sort_key, sort_desc, dirs_first, natural_sort, show_hidden
+            FROM session_tabs
             WHERE session_name = $name ORDER BY position;
             """,
             null,
@@ -133,12 +146,24 @@ public sealed class SqliteStorage : IStorage, IDisposable
         {
             var selection = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
 
+            // The sort key decides whether this tab had an order of its own; the rest of
+            // the columns are only meaningful when it did.
+            var sort = reader.IsDBNull(5)
+                ? null
+                : new SortSpec(
+                    Enum.TryParse<SortKey>(reader.GetString(5), out var key) ? key : SortKey.Name,
+                    !reader.IsDBNull(6) && reader.GetInt64(6) != 0,
+                    reader.IsDBNull(7) || reader.GetInt64(7) != 0,
+                    reader.IsDBNull(8) || reader.GetInt64(8) != 0);
+
             tabs.Add(new SavedTab(
                 reader.GetString(0),
                 reader.IsDBNull(1) ? null : reader.GetString(1),
                 selection.Length == 0 ? [] : selection.Split('\n'),
                 !reader.IsDBNull(3) && reader.GetInt64(3) != 0,
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                sort,
+                sort is null ? null : new FilterSpec(!reader.IsDBNull(9) && reader.GetInt64(9) != 0)));
         }
 
         return new SavedSession(name, tabs, Convert.ToInt32(active, System.Globalization.CultureInfo.InvariantCulture));
@@ -386,6 +411,18 @@ public sealed class SqliteStorage : IStorage, IDisposable
                 );
                 """,
                 transaction);
+        }
+
+        if (current < 5)
+        {
+            // Nullable on purpose: an existing tab has no order of its own, and null is how
+            // that is said. Defaulting them would silently pin every restored tab to
+            // whatever the configuration happened to be at upgrade time.
+            Execute("ALTER TABLE session_tabs ADD COLUMN sort_key TEXT;", transaction);
+            Execute("ALTER TABLE session_tabs ADD COLUMN sort_desc INTEGER;", transaction);
+            Execute("ALTER TABLE session_tabs ADD COLUMN dirs_first INTEGER;", transaction);
+            Execute("ALTER TABLE session_tabs ADD COLUMN natural_sort INTEGER;", transaction);
+            Execute("ALTER TABLE session_tabs ADD COLUMN show_hidden INTEGER;", transaction);
         }
 
         if (current < 4)
