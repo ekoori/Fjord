@@ -103,8 +103,35 @@ public sealed class FakePane : IPane
         return Task.CompletedTask;
     }
 
+    /// <summary>How many directories a test says are here to be measured.</summary>
+    public int DirectoriesToMeasure { get; set; }
+
+    public int MeasureDirectorySizes()
+    {
+        Log.Add("measure-sizes");
+        return DirectoriesToMeasure;
+    }
+
     /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
     public bool IsVirtual { get; set; }
+
+    /// <summary>The last made-up listing this pane was asked to show.</summary>
+    public (string Label, IReadOnlyList<string> Paths, IReadOnlyDictionary<string, string>? Notes)? Shown
+    {
+        get;
+        private set;
+    }
+
+    public Task ShowListingAsync(
+        string label,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes = null)
+    {
+        Shown = (label, paths, notes);
+        IsVirtual = true;
+        Directory = label;
+        return Task.CompletedTask;
+    }
 
     /// <summary>Relabels the pane without navigating, as showing a scrapbook does.</summary>
     public void SetDirectory(string directory) => Directory = directory;

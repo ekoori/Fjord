@@ -393,6 +393,26 @@ public sealed class NavigationCommands
             : $"Extracted {extracted} to {target}.");
     }
 
+    /// <remarks>
+    /// Reports the count rather than waiting: the walk can take a long time over a large
+    /// tree, and the sizes appear in the column as each directory finishes.
+    /// </remarks>
+    [Command("directory-sizes", Aliases = ["du"], Group = "Listing",
+        Description = "Measure every folder here, recursively, and show the totals")]
+    public void DirectorySizes(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var counted = pane.MeasureDirectorySizes();
+
+        messages.Info(counted == 0
+            ? "No folders here to measure."
+            : $"Measuring {counted} folder{(counted == 1 ? "" : "s")}…");
+    }
+
     [Command("reload", Group = "Navigation", Description = "Re-read the current directory")]
     public Task Reload([CommandArgument(Value = CommandValue.Pane)] IPane pane) => pane.ReloadAsync();
 

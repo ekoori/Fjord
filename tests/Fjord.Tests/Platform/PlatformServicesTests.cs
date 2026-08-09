@@ -129,17 +129,71 @@ public class PlatformCommandTests
     }
 
     [Fact]
-    public async Task RootsAreReported()
+    public async Task RootsOpenAsAListingYouCanNavigate()
+    {
+        // A line of names was something to read and then type back. The paths are the entry
+        // names, so Enter on one goes there like any other row.
+        var (parser, platform) = Setup();
+        platform.Roots =
+        [
+            new PlatformRoot("/", "Filesystem", RootKind.Drive),
+            new PlatformRoot("/home/u", "Home", RootKind.Home),
+        ];
+
+        var pane = new FakePane("/tmp");
+        await AwaitAll(parser, "roots", pane);
+
+        Assert.NotNull(pane.Shown);
+        Assert.Equal(["/", "/home/u"], pane.Shown!.Value.Paths);
+    }
+
+    [Fact]
+    public async Task ARootShowsItsLabelSizeAndFilesystem()
     {
         var (parser, platform) = Setup();
-        platform.Roots = [new PlatformRoot("/", "Filesystem", RootKind.Drive),
-                          new PlatformRoot("/home/u", "Home", RootKind.Home)];
+        platform.Roots =
+        [
+            new PlatformRoot(
+                "/", "Filesystem", RootKind.Drive,
+                new VolumeInfo(500L * 1024 * 1024 * 1024, 125L * 1024 * 1024 * 1024, "ext4")),
+        ];
+
+        var pane = new FakePane("/tmp");
+        await AwaitAll(parser, "roots", pane);
+
+        var note = pane.Shown!.Value.Notes!["/"];
+
+        Assert.Contains("Filesystem", note, StringComparison.Ordinal);
+        Assert.Contains("free of", note, StringComparison.Ordinal);
+        Assert.Contains("75% used", note, StringComparison.Ordinal);
+        Assert.Contains("ext4", note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AVolumeThatSaysNothingShowsItsLabelAlone()
+    {
+        // Zeroes would read as a full disk. A card reader with no card in it is not full.
+        var (parser, platform) = Setup();
+        platform.Roots = [new PlatformRoot("D:\\", "D:\\", RootKind.Removable)];
+
+        var pane = new FakePane("/tmp");
+        await AwaitAll(parser, "roots", pane);
+
+        Assert.DoesNotContain("free of", pane.Shown!.Value.Notes!["D:\\"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoRootsAtAllIsReportedRatherThanShown()
+    {
+        var (parser, platform) = Setup();
+        platform.Roots = [];
         var messages = new RecordingMessageSink();
 
-        await AwaitAll(parser, "roots", new FakePane("/tmp"), messages);
+        var pane = new FakePane("/tmp");
+        await AwaitAll(parser, "roots", pane, messages);
 
-        Assert.Contains("Filesystem", messages.Last, StringComparison.Ordinal);
-        Assert.Contains("Home", messages.Last, StringComparison.Ordinal);
+        Assert.Null(pane.Shown);
+        Assert.Contains("No roots", messages.Last!, StringComparison.Ordinal);
     }
 
     private static async Task AwaitAll(

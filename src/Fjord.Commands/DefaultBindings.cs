@@ -36,8 +36,6 @@ public static class DefaultBindings
                 ["<PgUp>"] = "move-page-up",
                 ["<Ctrl+f>"] = "move-page-down",
                 ["<Ctrl+b>"] = "move-page-up",
-                ["<Ctrl+d>"] = "move-half-page-down",
-                ["<Ctrl+u>"] = "move-half-page-up",
 
                 // Navigation. h/l follow the directory tree rather than moving a cursor
                 // sideways, which is the file-manager reading of them.
@@ -63,6 +61,10 @@ public static class DefaultBindings
                 ["s"] = "sort",
                 ["."] = "toggle-hidden",
 
+                // Ctrl-d was half-page-down, which j and Ctrl-f already cover between them.
+                // Measuring a tree is the thing you cannot get any other way.
+                ["<Ctrl+d>"] = "directory-sizes",
+
                 // Selection
                 ["<Space>"] = "select-toggle",
                 ["<Ctrl+a>"] = "select-all",
@@ -83,7 +85,7 @@ public static class DefaultBindings
                 // which is the more urgent of the two when one is active. The explicit key
                 // is shifted because Ctrl-l is history-forward.
                 ["/"] = "search-open",
-                ["<Ctrl+Shift+l>"] = "search-clear",
+                ["<Ctrl+/>"] = "search-clear",
 
                 // Scrapbook. "s" is taken by sort, so the collect verb gets "S".
                 ["S"] = "scrap-add",
@@ -133,8 +135,6 @@ public static class DefaultBindings
                 ["<Up>"] = "move-up",
                 ["gg"] = "move-first",
                 ["G"] = "move-last",
-                ["<Ctrl+d>"] = "move-half-page-down",
-                ["<Ctrl+u>"] = "move-half-page-up",
 
                 // Operators run at once here: the range already exists.
                 ["y"] = "yank-paths",
@@ -172,8 +172,6 @@ public static class DefaultBindings
                 ["k"] = "move-up",
                 ["gg"] = "move-first",
                 ["G"] = "move-last",
-                ["<Ctrl+d>"] = "move-half-page-down",
-                ["<Ctrl+u>"] = "move-half-page-up",
             },
         };
 

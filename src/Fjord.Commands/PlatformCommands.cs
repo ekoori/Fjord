@@ -1,4 +1,5 @@
 using Fjord.Core.Diagnostics;
+using Fjord.Core.FileSystem;
 using Fjord.Core.Panes;
 using Fjord.Core.Platform;
 
@@ -58,13 +59,62 @@ public sealed class PlatformCommands
     public Task GoHome([CommandArgument(Value = CommandValue.Pane)] IPane pane) =>
         pane.NavigateAsync(_platform.HomeDirectory);
 
-    [Command("roots", Group = "Platform", Description = "List drives and mounted volumes")]
-    public void Roots([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    /// <remarks>
+    /// A listing rather than a line of names, because the answer to "where can I go" is
+    /// something you pick from — and because a drive's label, capacity and free space are
+    /// most of the reason for asking. Enter goes there like any other row.
+    /// </remarks>
+    [Command("roots", Aliases = ["drives"], Group = "Platform",
+        Description = "Show drives and mounted volumes as a list")]
+    public async Task Roots(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
         var roots = _platform.GetRoots();
-        messages.Info(roots.Count == 0
-            ? "No roots found."
-            : string.Join("  ", roots.Select(r => r.Label)));
+
+        if (roots.Count == 0)
+        {
+            messages.Warning("No roots found.");
+            return;
+        }
+
+        // Keyed by path, because that is the entry name a virtual listing carries and what
+        // Enter will navigate to.
+        var described = roots.ToDictionary(
+            r => r.Path,
+            Describe,
+            StringComparer.Ordinal);
+
+        await pane.ShowListingAsync(
+            "roots",
+            [.. roots.Select(r => r.Path)],
+            described)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// A root's label, size, free space and filesystem, as one line.
+    /// </summary>
+    /// <remarks>
+    /// Free before total, because free is the number anyone reading this is looking for.
+    /// A volume that reported nothing shows its label alone rather than zeroes, which would
+    /// read as a full disk.
+    /// </remarks>
+    private static string Describe(PlatformRoot root)
+    {
+        if (root.Volume is not { TotalBytes: { } total, FreeBytes: { } free })
+        {
+            return root.Label;
+        }
+
+        var used = total == 0 ? 0 : (int)Math.Round(100.0 * (total - free) / total);
+        var fileSystem = root.Volume.FileSystem is { Length: > 0 } fs ? $"  {fs}" : string.Empty;
+
+        return $"{root.Label}   {SizeFormatter.Format(free)} free of "
+            + $"{SizeFormatter.Format(total)}  ({used}% used){fileSystem}";
     }
 
     /// <summary>

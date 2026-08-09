@@ -99,6 +99,16 @@ public sealed class MainWindow : Window, IMessageSink
         _messageLevel = initial.Error is null ? MessageLevel.Info : MessageLevel.Error;
 
         Title = "Fjord";
+
+        // No system title bar. It is a strip of chrome showing a name the user already
+        // knows, above a window whose own top row can carry the buttons instead — and on a
+        // list this dense, one row back is several more files.
+        //
+        // BorderOnly rather than None: the frame stays, so the window still resizes from
+        // its edges and snaps. Avalonia 12 dropped ExtendClientAreaChromeHints — with
+        // decorations extended it now draws its own title bar into the client area, which
+        // is the thing being removed here — so this is the way to say it.
+        WindowDecorations = WindowDecorations.BorderOnly;
         Icon = LoadIcon();
         Width = 1000;
         Height = 700;
@@ -203,13 +213,24 @@ public sealed class MainWindow : Window, IMessageSink
         ApplyUserBindings();
 
         _tabStrip = new StackPanel { Orientation = Orientation.Horizontal };
+        // The tabs and the window buttons share one row: buttons pinned right, tabs taking
+        // what is left. That row is the title bar now, so unlike before it is shown even
+        // with a single tab — the close button has to live somewhere.
+        var tabRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var buttons = BuildWindowButtons();
+        Grid.SetColumn(buttons, 1);
+
+        // A StackPanel lays its children out past its own width, so without this the
+        // twentieth tab would be drawn underneath the close button.
+        var tabs = new Panel { ClipToBounds = true, Children = { _tabStrip } };
+
+        tabRow.Children.Add(tabs);
+        tabRow.Children.Add(buttons);
+
         _tabBar = new Border
         {
             Background = _theme.Background,
-            Child = _tabStrip,
-
-            // Hidden with a single tab: a one-tab tab bar is chrome that says nothing.
-            IsVisible = false,
+            Child = tabRow,
         };
 
         _keyHints = new KeyHints(_theme);
@@ -690,7 +711,6 @@ public sealed class MainWindow : Window, IMessageSink
         }
     }
 
-    /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
     /// <summary>
     /// Shows what could follow a half-typed sequence, and nothing otherwise.
     /// </summary>
@@ -970,15 +990,101 @@ public sealed class MainWindow : Window, IMessageSink
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.FromCurrentSynchronizationContext());
 
-    private void RebuildTabBar()
+    /// <summary>
+    /// Minimise, maximise and close, at the right end of the tab row.
+    /// </summary>
+    /// <remarks>
+    /// Drawn as text rather than as glyphs from a symbol font: the Segoe icon fonts are not
+    /// on Linux or macOS, and a tofu box where the close button should be is worse
+    /// everywhere than a plain character.
+    /// </remarks>
+    private Control BuildWindowButtons()
     {
-        _tabBar.IsVisible = _workspace.Tabs.Count > 1;
-        _tabStrip.Children.Clear();
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
 
-        if (!_tabBar.IsVisible)
+        row.Children.Add(WindowButton("\u2013", "Minimise", () => WindowState = WindowState.Minimized));
+
+        row.Children.Add(WindowButton("\u25a1", "Maximise", () =>
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized));
+
+        row.Children.Add(WindowButton("\u00d7", "Close", Close, closing: true));
+
+        return row;
+    }
+
+    private Control WindowButton(string glyph, string tooltip, Action action, bool closing = false)
+    {
+        var label = new TextBlock
         {
+            Text = glyph,
+            FontFamily = _theme.Typeface.FontFamily,
+            FontSize = _theme.FontSize,
+            Foreground = _theme.MutedText,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var button = new Border
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(_theme.LeftPadding + 4, _theme.RowPadding),
+            Child = label,
+            Cursor = new Cursor(StandardCursorType.Arrow),
+        };
+
+        ToolTip.SetTip(button, tooltip);
+
+        // Red on the close button only, and only under the pointer: a permanently red x in
+        // the corner of a file manager reads as an error rather than as a button.
+        button.PointerEntered += (_, _) =>
+        {
+            button.Background = closing ? _theme.BrokenText : _theme.CursorBackground;
+            label.Foreground = _theme.FileText;
+        };
+
+        button.PointerExited += (_, _) =>
+        {
+            button.Background = Brushes.Transparent;
+            label.Foreground = _theme.MutedText;
+        };
+
+        button.PointerPressed += (_, e) =>
+        {
+            action();
+
+            // Or the press falls through to the window and starts dragging it instead.
+            e.Handled = true;
+        };
+
+        return button;
+    }
+
+    /// <summary>
+    /// Closes a tab by position, refusing to close the last one.
+    /// </summary>
+    /// <remarks>
+    /// The rule <c>:tab-close</c> already follows: a window with no tabs has nothing to
+    /// show, and quitting should be a decision rather than the end of a run of clicks.
+    /// </remarks>
+    private void CloseTabAt(int index)
+    {
+        if (_workspace.Tabs.Count <= 1)
+        {
+            ((IMessageSink)this).Info("Last tab; use :quit to close Fjord.");
             return;
         }
+
+        _workspace.CloseTab(index);
+        _list.Focus();
+    }
+
+    /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
+    private void RebuildTabBar()
+    {
+        // Always visible now: the row carries the window buttons, so it is the title bar.
+        _tabStrip.Children.Clear();
 
         for (var i = 0; i < _workspace.Tabs.Count; i++)
         {
@@ -1008,6 +1114,14 @@ public sealed class MainWindow : Window, IMessageSink
 
             chip.PointerPressed += (_, e) =>
             {
+                // Middle click closes, the way every browser has taught people it does.
+                if (e.GetCurrentPoint(chip).Properties.IsMiddleButtonPressed)
+                {
+                    CloseTabAt(index);
+                    e.Handled = true;
+                    return;
+                }
+
                 _workspace.CurrentIndex = index;
                 _dragFrom = index;
                 _dragOrigin = e.GetPosition(_tabStrip);

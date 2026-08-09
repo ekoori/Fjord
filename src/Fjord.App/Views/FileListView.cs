@@ -552,7 +552,7 @@ public sealed class FileListView : Control, ILogicalScrollable
             row,
             _generation,
             Text(entry.Name, nameBrush, nameWidth, theme, TextAlignment.Left),
-            Text(SizeFormatter.Format(entry.Size), theme.MutedText, theme.SizeColumnWidth, theme, TextAlignment.Right),
+            Text(SizeText(in entry), theme.MutedText, theme.SizeColumnWidth, theme, TextAlignment.Right),
             Text(FormatModified(in entry), theme.MutedText, theme.ModifiedColumnWidth, theme, TextAlignment.Right),
             note is null
                 ? null
@@ -620,6 +620,27 @@ public sealed class FileListView : Control, ILogicalScrollable
     }
 
     private void InvalidateRowCache() => _generation++;
+
+    /// <summary>
+    /// What goes in the size column.
+    /// </summary>
+    /// <remarks>
+    /// A directory has no size of its own until someone walks it, so the column is blank
+    /// until it has been measured and then shows the total. Measured sizes are told apart
+    /// from file sizes in the listing by nothing at all, deliberately: the number means the
+    /// same thing in both cases.
+    /// </remarks>
+    private string SizeText(in FileEntry entry)
+    {
+        if (!entry.IsDirectory)
+        {
+            return SizeFormatter.Format(entry.Size);
+        }
+
+        return _snapshot?.DirectorySizes.TryGetValue(entry.Name, out var measured) == true
+            ? SizeFormatter.Format(measured)
+            : string.Empty;
+    }
 
     /// <summary>The note against an entry, or null when this listing has none.</summary>
     private string? Annotation(string name) =>

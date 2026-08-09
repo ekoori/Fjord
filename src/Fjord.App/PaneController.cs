@@ -27,6 +27,9 @@ public sealed class PaneController : IPane
 
     private CancellationTokenSource? _navigation;
 
+    // The directory-size walk, so a second request replaces the first rather than racing it.
+    private CancellationTokenSource? _sizing;
+
     // Where a virtual listing was opened from, and null the rest of the time — which is
     // also how the pane knows it is showing one.
     private (string Directory, string? CursorName)? _leftBehind;
@@ -314,6 +317,9 @@ public sealed class PaneController : IPane
             return;
         }
 
+        // A listing about to be replaced has nothing worth measuring.
+        _sizing?.Cancel();
+
         // Asked before anything is torn down, and only for a real move: a reload navigates
         // to the directory already showing, and spawning a tab for that would make r
         // unusable.
@@ -383,6 +389,12 @@ public sealed class PaneController : IPane
     /// and overwrite this.
     /// </para>
     /// </remarks>
+    Task IPane.ShowListingAsync(
+        string label,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes) =>
+        ShowVirtualAsync(label, paths, notes);
+
     /// <param name="annotations">
     /// A note per entry, shown in its own column. Keyed by the entry name, which for a
     /// virtual listing is the whole path.
@@ -521,6 +533,66 @@ public sealed class PaneController : IPane
         _leftBehind = null;
         await NavigateAsync(origin.Directory, origin.CursorName, recordHistory: false).ConfigureAwait(true);
         return true;
+    }
+
+    /// <summary>
+    /// Walks every directory in the listing and fills in its size.
+    /// </summary>
+    /// <remarks>
+    /// One walk at a time per pane: asking again while a walk is running replaces it, so
+    /// pressing the key twice does not double the work. The results land on the snapshot
+    /// they were asked about, so a navigation part-way through leaves them behind with it
+    /// rather than writing them onto the new listing.
+    /// </remarks>
+    public int MeasureDirectorySizes()
+    {
+        if (Snapshot is not { } snapshot || ArchivePath.IsInside(Directory) || IsVirtual)
+        {
+            return 0;
+        }
+
+        var view = snapshot.View;
+        var names = new List<string>();
+
+        for (var row = 0; row < view.Count; row++)
+        {
+            if (view[row].IsDirectory)
+            {
+                names.Add(view[row].Name);
+            }
+        }
+
+        if (names.Count == 0)
+        {
+            return 0;
+        }
+
+        _sizing?.Cancel();
+        _sizing?.Dispose();
+        _sizing = new CancellationTokenSource();
+
+        var token = _sizing.Token;
+
+        _ = DirectorySizer.MeasureAsync(
+            snapshot.Directory,
+            names,
+            (name, size) => OnUiThread(() =>
+            {
+                if (token.IsCancellationRequested || !ReferenceEquals(Snapshot, snapshot))
+                {
+                    return;
+                }
+
+                snapshot.DirectorySizes[name] = size.Bytes;
+
+                if (_isActive)
+                {
+                    _list.RequestRedraw();
+                }
+            }),
+            token);
+
+        return names.Count;
     }
 
     /// <summary>Re-lists the current directory, keeping the cursor where it was.</summary>

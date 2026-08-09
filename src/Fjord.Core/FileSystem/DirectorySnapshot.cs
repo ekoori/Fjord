@@ -110,6 +110,16 @@ public sealed class DirectorySnapshot
     /// </remarks>
     public IReadOnlyDictionary<string, string>? Annotations { get; init; }
 
+    /// <summary>
+    /// Measured sizes for directories, by name, filled in on request.
+    /// </summary>
+    /// <remarks>
+    /// Mutable and shared rather than replaced, because it is written to as a background
+    /// walk finishes each directory and read by the paint that follows. A dictionary
+    /// swapped wholesale per result would allocate one per directory in the listing.
+    /// </remarks>
+    public Dictionary<string, long> DirectorySizes { get; } = new(StringComparer.Ordinal);
+
     public SortSpec Sort => _sort;
 
     public FilterSpec Filter => _filter;

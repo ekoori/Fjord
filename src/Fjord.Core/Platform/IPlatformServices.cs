@@ -1,5 +1,16 @@
 namespace Fjord.Core.Platform;
 
+/// <summary>What a volume reports about itself, when it will say.</summary>
+/// <param name="TotalBytes">Capacity, or null when the volume did not answer.</param>
+/// <param name="FreeBytes">Space available to this user, or null.</param>
+/// <param name="FileSystem">NTFS, ext4, APFS — or empty when unknown.</param>
+/// <remarks>
+/// Nullable throughout because a root is not always a mounted volume. A network share that
+/// is offline, a card reader with no card and an unreadable mount all appear in the list
+/// and answer nothing; showing them with blank figures is more honest than hiding them.
+/// </remarks>
+public readonly record struct VolumeInfo(long? TotalBytes, long? FreeBytes, string FileSystem = "");
+
 public enum RootKind
 {
     Drive,
@@ -10,7 +21,15 @@ public enum RootKind
 }
 
 /// <summary>A place the user can navigate to from nowhere: a drive, a mount, home.</summary>
-public readonly record struct PlatformRoot(string Path, string Label, RootKind Kind);
+/// <param name="Volume">
+/// Capacity, free space and filesystem, where the volume reports them. Gathered with the
+/// root rather than on demand: they come from the same call that finds it.
+/// </param>
+public readonly record struct PlatformRoot(
+    string Path,
+    string Label,
+    RootKind Kind,
+    VolumeInfo Volume = default);
 
 /// <summary>
 /// The operations that differ per operating system.

@@ -108,10 +108,30 @@ public sealed class WindowsPlatformServices : PlatformServicesBase
                 ? drive.Name
                 : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
 
-            roots.Add(new PlatformRoot(drive.Name, label, Kind(drive.DriveType)));
+            roots.Add(new PlatformRoot(drive.Name, label, Kind(drive.DriveType), Describe(drive)));
         }
 
         return roots;
+    }
+
+    /// <summary>
+    /// What a ready drive reports about itself.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these throws on a drive that stops being ready between the readiness
+    /// check and the read — a card pulled out, a share dropped — so the whole thing is
+    /// guarded rather than each property. A root with no figures still belongs in the list.
+    /// </remarks>
+    private static VolumeInfo Describe(DriveInfo drive)
+    {
+        try
+        {
+            return new VolumeInfo(drive.TotalSize, drive.AvailableFreeSpace, drive.DriveFormat);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return default;
+        }
     }
 
     /// <remarks>
@@ -155,7 +175,7 @@ public sealed class MacPlatformServices : PlatformServicesBase
         var roots = new List<PlatformRoot>
         {
             new(HomeDirectory, "Home", RootKind.Home),
-            new("/", "Macintosh HD", RootKind.Drive),
+            new("/", "Macintosh HD", RootKind.Drive, UnixMounts.Volume("/")),
         };
 
         roots.AddRange(UnixMounts.Under("/Volumes"));
@@ -181,7 +201,7 @@ public sealed class LinuxPlatformServices : PlatformServicesBase
         var roots = new List<PlatformRoot>
         {
             new(HomeDirectory, "Home", RootKind.Home),
-            new("/", "Filesystem", RootKind.Drive),
+            new("/", "Filesystem", RootKind.Drive, UnixMounts.Volume("/")),
         };
 
         // Where udisks2 and most desktops mount removable media.
@@ -245,7 +265,7 @@ public sealed class GenericPlatformServices : PlatformServicesBase
     public override IReadOnlyList<PlatformRoot> GetRoots() =>
     [
         new(HomeDirectory, "Home", RootKind.Home),
-        new("/", "Filesystem", RootKind.Drive),
+        new("/", "Filesystem", RootKind.Drive, UnixMounts.Volume("/")),
     ];
 
     public override Task RevealAsync(string path, CancellationToken ct = default)
@@ -269,7 +289,8 @@ internal static class UnixMounts
         {
             return Directory
                 .EnumerateDirectories(directory)
-                .Select(path => new PlatformRoot(path, Path.GetFileName(path), RootKind.Mount))
+                .Select(path => new PlatformRoot(
+                    path, Path.GetFileName(path), RootKind.Mount, Volume(path)))
                 .ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -279,6 +300,27 @@ internal static class UnixMounts
     }
 
     /// <summary>Replaces the home prefix with <c>~</c>, but only on a path boundary.</summary>
+    /// <summary>Capacity and free space for a mount point, where it will say.</summary>
+    /// <remarks>
+    /// DriveInfo works on any path on Unix, not just a drive letter, so the same class
+    /// answers for a mount under /media as for C: on Windows.
+    /// </remarks>
+    public static VolumeInfo Volume(string path)
+    {
+        try
+        {
+            var drive = new DriveInfo(path);
+
+            return drive.IsReady
+                ? new VolumeInfo(drive.TotalSize, drive.AvailableFreeSpace, drive.DriveFormat)
+                : default;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return default;
+        }
+    }
+
     public static string Abbreviate(string path, string home)
     {
         if (home.Length == 0 || !path.StartsWith(home, StringComparison.Ordinal))

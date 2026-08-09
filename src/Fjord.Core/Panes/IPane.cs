@@ -79,6 +79,19 @@ public interface IPane
     string RestorableDirectory { get; }
 
     /// <summary>
+    /// Shows a made-up listing of paths, with a note against each.
+    /// </summary>
+    /// <remarks>
+    /// The general form of what a scrapbook does. Anything that is a set of paths gathered
+    /// from elsewhere — a scrapbook, the list of drives — is the same thing to the pane,
+    /// and giving each its own mechanism would mean three that behaved slightly differently.
+    /// </remarks>
+    Task ShowListingAsync(
+        string label,
+        IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, string>? notes = null);
+
+    /// <summary>
     /// Opens the row of a virtual listing whose entries are not paths.
     /// </summary>
     /// <returns>False when this listing's rows are ordinary paths.</returns>
@@ -105,6 +118,17 @@ public interface IPane
     Task NavigateAsync(string directory, string? selectName = null);
 
     Task ReloadAsync();
+
+    /// <summary>
+    /// Measures every directory in the listing and fills in the size column.
+    /// </summary>
+    /// <returns>How many directories are being measured.</returns>
+    /// <remarks>
+    /// Asked for rather than automatic: a filesystem keeps no size for a directory, so
+    /// finding one means walking the whole tree, which no listing could afford to do for
+    /// every row it draws.
+    /// </remarks>
+    int MeasureDirectorySizes();
 
     Task BackAsync(int count = 1);
 
