@@ -257,6 +257,78 @@ public class ArchiveReaderTests
     }
 
     [Fact]
+    public async Task AWholeDirectoryComesOutWithItsShape()
+    {
+        using var temp = new TempDirectory();
+        var zip = MakeZip(temp, "lib/one.dll", "lib/net10.0/two.dll", "readme.txt");
+        var destination = Path.Combine(temp.Path, "out");
+
+        var written = await ArchiveReader.ExtractTreeAsync(new ArchivePath(zip, "lib"), destination);
+
+        Assert.Equal(2, written);
+        Assert.Equal("contents", File.ReadAllText(Path.Combine(destination, "one.dll")));
+        Assert.Equal("contents", File.ReadAllText(Path.Combine(destination, "net10.0", "two.dll")));
+
+        // Only what was asked for: readme.txt is a sibling of lib, not part of it.
+        Assert.False(File.Exists(Path.Combine(destination, "readme.txt")));
+    }
+
+    [Fact]
+    public async Task ASingleFileComesOutAsAFile()
+    {
+        using var temp = new TempDirectory();
+        var zip = MakeZip(temp, "lib/one.dll");
+        var destination = Path.Combine(temp.Path, "one.dll");
+
+        var written = await ArchiveReader.ExtractTreeAsync(new ArchivePath(zip, "lib/one.dll"), destination);
+
+        Assert.Equal(1, written);
+        Assert.Equal("contents", File.ReadAllText(destination));
+    }
+
+    [Fact]
+    public async Task ADirectoryComesOutOfATarGzToo()
+    {
+        using var temp = new TempDirectory();
+        var archive = MakeTarGz(temp, "lib/one.dll", "lib/net10.0/two.dll");
+        var destination = Path.Combine(temp.Path, "out");
+
+        var written = await ArchiveReader.ExtractTreeAsync(new ArchivePath(archive, "lib"), destination);
+
+        Assert.Equal(2, written);
+        Assert.Equal("contents", File.ReadAllText(Path.Combine(destination, "net10.0", "two.dll")));
+    }
+
+    [Fact]
+    public async Task AnEntryThatClimbsOutOfTheDestinationIsNotWritten()
+    {
+        // Zip slip. An archive is untrusted input, and an entry named ../escaped.txt would
+        // otherwise be written outside the directory the user chose — which is the one
+        // thing choosing a destination is supposed to guarantee.
+        using var temp = new TempDirectory();
+        var zip = MakeZip(temp, "lib/one.dll", "lib/../../escaped.txt");
+        var destination = Path.Combine(temp.Path, "out");
+
+        await ArchiveReader.ExtractTreeAsync(new ArchivePath(zip, "lib"), destination);
+
+        Assert.False(File.Exists(Path.Combine(temp.Path, "escaped.txt")));
+        Assert.True(File.Exists(Path.Combine(destination, "one.dll")));
+    }
+
+    [Fact]
+    public async Task ADirectoryThatIsNotThereLeavesNothingBehind()
+    {
+        using var temp = new TempDirectory();
+        var zip = MakeZip(temp, "lib/one.dll");
+        var destination = Path.Combine(temp.Path, "out");
+
+        var written = await ArchiveReader.ExtractTreeAsync(new ArchivePath(zip, "nope"), destination);
+
+        Assert.Equal(0, written);
+        Assert.False(System.IO.Directory.Exists(destination));
+    }
+
+    [Fact]
     public void AnEmptyArchiveListsNothingRatherThanFailing()
     {
         using var temp = new TempDirectory();

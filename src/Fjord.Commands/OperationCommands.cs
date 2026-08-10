@@ -1,4 +1,5 @@
 using Fjord.Core.Diagnostics;
+using Fjord.Core.FileSystem;
 using Fjord.Core.Operations;
 using Fjord.Core.Panes;
 using Fjord.Core.Registers;
@@ -49,6 +50,15 @@ public sealed class OperationCommands
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
         var paths = PathsIn(pane, range);
+
+        // Cutting means the source goes away, and nothing can be taken out of an archive:
+        // Fjord reads them and does not write them. Yanking does what was wanted anyway.
+        if (paths.Any(ArchivePath.IsInside))
+        {
+            messages.Error("Cannot cut out of an archive. Yank instead; pasting extracts.");
+            return;
+        }
+
         _host.Registers[register] = new ClipboardContents(paths, Cut: true);
         messages.Info($"Cut {Count(paths.Count)} for moving{Into(register)}.");
     }
@@ -74,9 +84,24 @@ public sealed class OperationCommands
             return;
         }
 
-        _host.Enqueue(clipboard.Cut
-            ? _factory.Move(clipboard.Paths, pane.Directory)
-            : _factory.Copy(clipboard.Paths, pane.Directory));
+        // A yank taken inside an archive holds paths the filesystem cannot open, so pasting
+        // one extracts rather than copies. Splitting here rather than refusing the whole
+        // paste keeps a register that mixes the two — easy to build by yanking twice —
+        // from being unusable.
+        var members = clipboard.Paths.Where(ArchivePath.IsInside).ToList();
+        var onDisk = clipboard.Paths.Where(p => !ArchivePath.IsInside(p)).ToList();
+
+        if (onDisk.Count > 0)
+        {
+            _host.Enqueue(clipboard.Cut
+                ? _factory.Move(onDisk, pane.Directory)
+                : _factory.Copy(onDisk, pane.Directory));
+        }
+
+        if (members.Count > 0)
+        {
+            _host.Enqueue(_factory.Extract(members, pane.Directory));
+        }
 
         // A cut is consumed by pasting; a yank is not, so the same files can be copied to
         // several places without re-yanking. This is what vim does with its registers and
@@ -347,6 +372,9 @@ public interface IFileOperationFactory
     IFileOperation Trash(IReadOnlyList<string> paths);
 
     IFileOperation Delete(IReadOnlyList<string> paths);
+
+    /// <param name="members">Paths inside an archive, as <c>archive.zip!/dir/name</c>.</param>
+    IFileOperation Extract(IReadOnlyList<string> members, string destinationDirectory);
 
     IFileOperation Create(string path, bool directory);
 }

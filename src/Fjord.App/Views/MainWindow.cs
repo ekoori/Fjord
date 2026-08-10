@@ -1080,11 +1080,35 @@ public sealed class MainWindow : Window, IMessageSink
         _list.Focus();
     }
 
+    /// <summary>What the strip currently reads, so it is only rebuilt when that changes.</summary>
+    private string[] _tabLabels = [];
+
+    private bool TabLabelsChanged()
+    {
+        var tabs = _workspace.Tabs;
+
+        if (_tabLabels.Length != tabs.Count)
+        {
+            return true;
+        }
+
+        for (var i = 0; i < tabs.Count; i++)
+        {
+            if (!string.Equals(_tabLabels[i], tabs[i].Title, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Rebuilds the tab strip. Cheap enough to redo whenever the set changes.</summary>
     private void RebuildTabBar()
     {
         // Always visible now: the row carries the window buttons, so it is the title bar.
         _tabStrip.Children.Clear();
+        _tabLabels = [.. _workspace.Tabs.Select(t => t.Title)];
 
         for (var i = 0; i < _workspace.Tabs.Count; i++)
         {
@@ -1254,6 +1278,16 @@ public sealed class MainWindow : Window, IMessageSink
         }
 
         RebuildBreadcrumbs(pane.Directory);
+
+        // A tab's title comes from its pane's directory, which is empty until the first
+        // listing arrives — so a bar built only when tabs are added or removed shows the
+        // very first tab as "(empty)" for the life of the window. Compared rather than
+        // rebuilt unconditionally, because this runs on every cursor move.
+        if (TabLabelsChanged())
+        {
+            RebuildTabBar();
+        }
+
         _input.SyncModeToPane(pane);
 
         // Pending keys and mode, exactly as QuteSharp's status bar shows them: a

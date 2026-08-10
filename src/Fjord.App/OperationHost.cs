@@ -29,6 +29,9 @@ public sealed class FileOperationFactory : IFileOperationFactory
 
     public IFileOperation Delete(IReadOnlyList<string> paths) => new DeleteOperation(paths);
 
+    public IFileOperation Extract(IReadOnlyList<string> members, string destinationDirectory) =>
+        new ExtractOperation(members, destinationDirectory);
+
     public IFileOperation Create(string path, bool directory) => new CreateOperation(path, directory);
 }
 

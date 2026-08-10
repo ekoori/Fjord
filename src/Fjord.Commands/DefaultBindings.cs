@@ -48,6 +48,10 @@ public static class DefaultBindings
                 ["r"] = "reload",
                 ["~"] = "go-home",
                 ["o"] = "open-with-default",
+
+                // Free since history moved to Ctrl-h/Ctrl-l below, and next to plain o,
+                // which opens with whatever the system already decided.
+                ["<Ctrl+o>"] = "open-with",
                 ["R"] = "reveal",
                 // Ctrl-h/Ctrl-l rather than vim's Ctrl-o/Ctrl-i: h and l already mean
                 // "out" and "in" here, so held with Ctrl they mean the same thing through

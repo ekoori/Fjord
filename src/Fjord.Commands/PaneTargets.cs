@@ -38,7 +38,7 @@ public static class PaneTargets
             return false;
         }
 
-        messages.Error($"Cannot {verb} inside an archive. :extract copies entries out.");
+        messages.Error($"Cannot {verb} inside an archive. Yank and paste elsewhere, or :extract.");
         return true;
     }
 

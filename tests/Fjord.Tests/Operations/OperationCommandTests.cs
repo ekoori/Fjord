@@ -76,6 +76,8 @@ internal sealed class FakeOperationFactory : IFileOperationFactory
 
     public IFileOperation Delete(IReadOnlyList<string> p) => new Fake($"delete:{Join(p)}");
 
+    public IFileOperation Extract(IReadOnlyList<string> m, string d) => new Fake($"extract:{Join(m)}->{d}");
+
     public IFileOperation Create(string path, bool directory) =>
         new Fake($"create:{(directory ? "dir" : "file")}:{path}");
 
@@ -158,6 +160,48 @@ public class OperationCommandTests
         parser.Execute("paste", Context(Pane()));
 
         Assert.Equal(["move:a.txt->/tmp"], host.Enqueued);
+    }
+
+    [Fact]
+    public void PastingSomethingYankedInsideAnArchiveExtractsIt()
+    {
+        // The paths in the register are not paths the filesystem can open, so a copy would
+        // fail on the first read. Pasting is still the obvious way to ask for the file.
+        var (parser, host) = Setup();
+        host.Clipboard = new ClipboardContents(["/other/src.zip!/lib/a.txt"], Cut: false);
+
+        parser.Execute("paste", Context(Pane()));
+
+        Assert.Equal(["extract:a.txt->/tmp"], host.Enqueued);
+    }
+
+    [Fact]
+    public void ARegisterHoldingBothKindsPastesBoth()
+    {
+        // Two yanks into the same register, one from a folder and one from an archive.
+        // Refusing the whole paste would strand whichever was yanked second.
+        var (parser, host) = Setup();
+        host.Clipboard = new ClipboardContents(
+            ["/other/a.txt", "/other/src.zip!/lib/b.txt"], Cut: false);
+
+        parser.Execute("paste", Context(Pane()));
+
+        Assert.Equal(["copy:a.txt->/tmp", "extract:b.txt->/tmp"], host.Enqueued);
+    }
+
+    [Fact]
+    public void CuttingOutOfAnArchiveIsRefused()
+    {
+        // Fjord reads archives and does not write them, so the source could never go away.
+        // Doing the copy half silently would leave the user believing it had moved.
+        var (parser, host) = Setup();
+        var pane = new FakePane("/other/src.zip!/lib", "a.txt");
+        var messages = new RecordingMessageSink();
+
+        parser.Execute("cut-paths", Context(pane, messages, new EntryRange(0, 0, true)));
+
+        Assert.True(host.Clipboard.IsEmpty);
+        Assert.Contains("Yank instead", messages.Last!, StringComparison.Ordinal);
     }
 
     [Fact]

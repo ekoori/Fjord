@@ -587,7 +587,9 @@ public sealed class PaneController : IPane
 
                 if (_isActive)
                 {
-                    _list.RequestRedraw();
+                    // Not a plain redraw: the row's text is cached from when it was drawn
+                    // blank, so repainting would faithfully redraw the blank.
+                    _list.RefreshRowText();
                 }
             }),
             token);

@@ -256,6 +256,22 @@ public sealed class FileListView : Control, ILogicalScrollable
     }
 
     /// <summary>
+    /// Drops cached row text, for metadata that arrived after the rows were drawn.
+    /// </summary>
+    /// <remarks>
+    /// A repaint alone is not enough: the cached visuals are keyed on the row and the
+    /// generation, so a measured directory size would be written into the snapshot and
+    /// then never drawn, because every visible row still has a valid cache entry holding
+    /// the blank it was built with. Coalesced through <see cref="RequestRedraw"/>, so a
+    /// hundred directories finishing at once still cost one frame.
+    /// </remarks>
+    public void RefreshRowText()
+    {
+        InvalidateRowCache();
+        RequestRedraw();
+    }
+
+    /// <summary>
     /// Drops cached row visuals after the theme changed.
     /// </summary>
     /// <remarks>

@@ -7,30 +7,44 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 
 [![CI](https://github.com/ekoori/Fjord/actions/workflows/ci.yml/badge.svg)](https://github.com/ekoori/Fjord/actions/workflows/ci.yml)
 
+![Fjord](docs/media/fjord.gif)
+
+*A listing, visual mode, the command line completing, a fuzzy search, the inside of a
+zip, recursive folder sizes, and the help page. Regenerate with
+`scripts/capture-screenshots.ps1` and `scripts/make-gif.py`.*
+
 > **Status: early but complete for v1.** Everything on the original v1 list is built.
 > Previews, an embedded terminal, git integration and plugins are not. There are no
-> releases yet — you build it yourself.
+> releases yet — you build the archives yourself with `scripts/package.ps1`.
 
 ## What works
 
-- **Modal navigation.** `hjkl`, `gg`/`G`, counts (`5j`), `Ctrl-d`/`Ctrl-u`, visual mode.
+- **Modal navigation.** `hjkl`, `gg`/`G`, counts (`5j`), `Ctrl-f`/`Ctrl-b`, visual mode.
 - **Operators with motions.** `d3j` trashes three rows, `y2j` yanks two. Counts multiply
   the vim way, so `3d2j` covers six.
 - **File operations.** Copy, move, rename, duplicate, trash, mkdir, touch — queued,
   cancellable, with progress, and **undoable** with `u`.
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
-- **Tabs** with `L`/`H`, and history with `Ctrl-o`/`Ctrl-i`.
+- **Open with.** `Ctrl-o` hands the file to the system's own chooser — the one that can
+  also change which application owns the type from then on.
+- **Tabs** with `L`/`H`, and history with `Ctrl-h`/`Ctrl-l`.
 - **Registers and quickmarks.** `"ay` collects into `"a`; `m` names the directory you are
   in and `:cd <name>` goes back to it. Quickmarks survive a restart.
 - **Lockable tabs.** Pin a tab to its folder; navigating out opens a new one and follows it.
   Name them with `:tab-rename`, reorder by dragging.
-- **Archives as folders.** Enter a `.zip` or `.tar.gz` and browse it; `:extract` copies out.
+- **Archives as folders.** Enter a `.zip` or `.tar.gz` and browse it. Yank something
+  inside and paste it anywhere to extract it; `:extract` does the same by name.
 - **Named listings.** `:sort` cycles through saved sort orders; `:listing-save` keeps one.
 - **A `:` command line** with history and path completion.
-- **Fuzzy search.** `/` narrows the listing as you type: `fjc` finds `Fjord.Core.csproj`.
+- **Fuzzy search.** `/` narrows the listing to what matches: `dbp` finds
+  `Directory.Build.props`. `Ctrl-/` puts the rest back.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
 - **Scrapbooks.** Collect entries from anywhere into a virtual list and act on them together.
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
+- **Folder sizes on demand.** `Ctrl-d` walks every folder in the listing and fills in
+  the size column as each one finishes.
+- **Roots.** `:roots` lists the drives with their labels, free space and filesystem, as
+  entries you can walk into.
 - **Large directories.** 100,000 entries paints its first screen in about 25 ms.
 
 ## Installing
@@ -93,6 +107,7 @@ out of date.
 | `j` `k` | move down / up |
 | `gg` `G` | first / last entry |
 | `l` `Enter` | open — a directory, or a file in its default application |
+| `o` `Ctrl-o` | open with the default application / with one you pick |
 | `h` `Backspace` | parent directory |
 | `Space` | select, and advance |
 | `v` | visual mode |
@@ -101,7 +116,8 @@ out of date.
 | `d` | trash — an operator, so `d3j` takes four rows and `dd` takes one |
 | `D` | trash the selection |
 | `u` `Ctrl-r` | undo / redo |
-| `/` | search — narrows the listing |
+| `/` `Ctrl-/` | search — narrows the listing / puts it back |
+| `Ctrl-d` | measure every folder here, recursively |
 | `S` `gs` | add to scrapbook / open it |
 | `"a` | use register `a` for the next yank, cut or paste |
 | `m` | name this directory as a quickmark |
@@ -152,7 +168,7 @@ listing:
 bindings:
   normal:
     "j": "move-down"
-    "<Ctrl+d>": "move-half-page-down"
+    "<Ctrl+d>": "directory-sizes"
 ```
 
 The file is generated with every setting documented and every default binding listed as

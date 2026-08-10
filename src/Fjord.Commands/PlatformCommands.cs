@@ -33,6 +33,35 @@ public sealed class PlatformCommands
         }
     }
 
+    /// <remarks>
+    /// Separate from <c>open-with-default</c> rather than a flag on it, so a binding can
+    /// reach either one directly: the whole point of asking is that you did not want the
+    /// default this time.
+    /// </remarks>
+    [Command("open-with", Group = "Platform",
+        Description = "Open the entry under the cursor with an application you choose")]
+    public async Task OpenWith(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        if (pane.PathAt(pane.CursorIndex) is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!await _platform.OpenWithAsync(path).ConfigureAwait(true))
+            {
+                messages.Error("This system offers no \"open with\" dialog.");
+            }
+        }
+        catch (Exception ex) when (IsLaunchFailure(ex))
+        {
+            messages.Error($"Could not open {Path.GetFileName(path)}: {ex.Message}");
+        }
+    }
+
     [Command("reveal", Group = "Platform",
         Description = "Show the entry under the cursor in the system file manager")]
     public async Task Reveal(

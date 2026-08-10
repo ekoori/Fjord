@@ -117,6 +117,48 @@ public static class ArchiveReader
         }
     }
 
+    /// <summary>
+    /// Copies an entry out, or a whole directory of them.
+    /// </summary>
+    /// <param name="destination">
+    /// The file to write for a file entry, or the directory to fill for a directory entry.
+    /// </param>
+    /// <returns>How many files were written. Zero means the entry was not in the archive.</returns>
+    /// <remarks>
+    /// One pass over the archive for the whole subtree, rather than a call to
+    /// <see cref="ExtractAsync"/> per file. A tar has no central directory, so each of
+    /// those would read the container through from the start — extracting a folder of a
+    /// hundred files would read the archive a hundred times.
+    /// <para>
+    /// As with a single file, a subtree that does not finish is removed rather than left
+    /// behind: half a folder is indistinguishable from a whole one once the operation that
+    /// wrote it is gone.
+    /// </para>
+    /// </remarks>
+    public static async Task<int> ExtractTreeAsync(
+        ArchivePath location, string destination, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        var written = 0;
+
+        try
+        {
+            written = IsTar(location.Archive)
+                ? await ExtractTreeFromTarAsync(location, destination, ct).ConfigureAwait(false)
+                : await ExtractTreeFromZipAsync(location, destination, ct).ConfigureAwait(false);
+
+            return written;
+        }
+        finally
+        {
+            if (written == 0)
+            {
+                TryDiscard(destination);
+            }
+        }
+    }
+
     /// <summary>Every entry, files and any directories the archive records.</summary>
     public static IEnumerable<ArchiveEntry> Read(string archive)
     {
@@ -221,8 +263,138 @@ public static class ArchiveReader
         throw new FileNotFoundException($"'{location.Entry}' is not in {location.Archive}.");
     }
 
+    /// <summary>
+    /// Where one archive key lands under a destination, or null when it is not in scope.
+    /// </summary>
+    /// <remarks>
+    /// The guard against <c>..</c> is the zip-slip check. An archive is untrusted input, and
+    /// a crafted entry named <c>../../.bashrc</c> would otherwise be written outside the
+    /// directory the user chose — the whole point of extracting somewhere specific.
+    /// </remarks>
+    private static string? Landing(ArchivePath location, string key, string destination)
+    {
+        if (string.Equals(key, location.Entry, StringComparison.Ordinal))
+        {
+            return destination;
+        }
+
+        var prefix = location.Entry.Length == 0 ? string.Empty : location.Entry + "/";
+
+        if (prefix.Length > 0 && !key.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var relative = key[prefix.Length..].Trim('/');
+
+        if (relative.Length == 0)
+        {
+            return null;
+        }
+
+        var full = Path.GetFullPath(Path.Combine(destination, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var root = Path.GetFullPath(destination);
+
+        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;
+    }
+
+    private static async Task<int> ExtractTreeFromZipAsync(
+        ArchivePath location, string destination, CancellationToken ct)
+    {
+        using var zip = ZipFile.OpenRead(location.Archive);
+        var written = 0;
+
+        foreach (var entry in zip.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var key = entry.FullName.Replace('\\', '/');
+
+            if (Landing(location, key.Trim('/'), destination) is not { } target)
+            {
+                continue;
+            }
+
+            if (key.EndsWith('/'))
+            {
+                Directory.CreateDirectory(target);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+
+            await using var source = entry.Open();
+            await using var file = File.Create(target);
+            await source.CopyToAsync(file, ct).ConfigureAwait(false);
+            written++;
+        }
+
+        return written;
+    }
+
+    private static async Task<int> ExtractTreeFromTarAsync(
+        ArchivePath location, string destination, CancellationToken ct)
+    {
+        await using var stream = OpenTar(location.Archive);
+        using var reader = new TarReader(stream);
+        var written = 0;
+
+        while (reader.GetNextEntry() is { } entry)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var key = entry.Name.Replace('\\', '/').Trim('/');
+
+            if (Landing(location, key, destination) is not { } target)
+            {
+                continue;
+            }
+
+            if (entry.EntryType is TarEntryType.Directory)
+            {
+                Directory.CreateDirectory(target);
+                continue;
+            }
+
+            if (entry.DataStream is not { } data)
+            {
+                // A link or a device node. Nothing to write, and nothing lost by skipping
+                // it: recreating one on extraction is a different decision than copying.
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+
+            await using var file = File.Create(target);
+            await data.CopyToAsync(file, ct).ConfigureAwait(false);
+            written++;
+        }
+
+        return written;
+    }
+
     private static DateTime Newer(Dictionary<string, DateTime> known, string name, DateTime candidate) =>
         known.TryGetValue(name, out var existing) && existing > candidate ? existing : candidate;
+
+    /// <summary>Removes a partial extraction, whether it got as far as a file or a tree.</summary>
+    private static void TryDiscard(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            else if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing useful to do: the caller is already failing.
+        }
+    }
 
     private static void TryDelete(string path)
     {

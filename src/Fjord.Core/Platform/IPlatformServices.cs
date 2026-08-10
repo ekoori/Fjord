@@ -53,6 +53,17 @@ public interface IPlatformServices
     /// <summary>Opens a path with whatever the OS considers its default handler.</summary>
     Task OpenAsync(string path, CancellationToken ct = default);
 
+    /// <summary>
+    /// Asks the OS to show its own "open with" chooser for a path.
+    /// </summary>
+    /// <returns>False when the running system offers no such dialog.</returns>
+    /// <remarks>
+    /// The dialog belongs to the OS rather than to Fjord on purpose: it is the one place
+    /// the user can also change which application owns the file type from then on, and a
+    /// list Fjord drew itself could offer the choice but not make it stick.
+    /// </remarks>
+    Task<bool> OpenWithAsync(string path, CancellationToken ct = default);
+
     /// <summary>Shows a path in the system file manager, selected where that is supported.</summary>
     Task RevealAsync(string path, CancellationToken ct = default);
 

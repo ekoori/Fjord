@@ -54,6 +54,17 @@ public abstract class PlatformServicesBase : IPlatformServices
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// No chooser by default.
+    /// </summary>
+    /// <remarks>
+    /// Saying so is the point. An unknown system might have a picker under some name, but
+    /// guessing at one and silently opening the file with its default handler instead
+    /// would be worse than a message explaining that this system has none.
+    /// </remarks>
+    public virtual Task<bool> OpenWithAsync(string path, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
     public abstract Task RevealAsync(string path, CancellationToken ct = default);
 
     public virtual string DisplayPath(string path) => path;
@@ -139,6 +150,31 @@ public sealed class WindowsPlatformServices : PlatformServicesBase
     /// silently opens the parent instead. And explorer returns exit code 1 on success, so
     /// nothing may check it.
     /// </remarks>
+    /// <summary>
+    /// The shell's own "How do you want to open this file?" picker.
+    /// </summary>
+    /// <remarks>
+    /// <c>OpenAs_RunDLL</c> is the documented entry point for <c>SHOpenWithDialog</c>,
+    /// which on Windows 10 and later is the full picker — the one with "More apps" and
+    /// "Always use this app", rather than the short list on the shell's context menu.
+    /// <para>
+    /// The path is passed unquoted and as a raw command line, because the entry point
+    /// takes everything after the comma verbatim; <c>ArgumentList</c> would wrap it in
+    /// quotes that arrive as part of the filename. Spaces are fine, and a quotation mark
+    /// cannot appear here because Windows does not allow one in a filename.
+    /// </para>
+    /// </remarks>
+    public override Task<bool> OpenWithAsync(string path, CancellationToken ct = default)
+    {
+        Start(new ProcessStartInfo("rundll32.exe")
+        {
+            Arguments = $"shell32.dll,OpenAs_RunDLL {Path.GetFullPath(path)}",
+            UseShellExecute = false,
+        });
+
+        return Task.FromResult(true);
+    }
+
     public override Task RevealAsync(string path, CancellationToken ct = default)
     {
         var full = Path.GetFullPath(path);
@@ -182,6 +218,37 @@ public sealed class MacPlatformServices : PlatformServicesBase
         return roots;
     }
 
+    /// <summary>
+    /// The Standard Additions application chooser, then <c>open -a</c> with what it picked.
+    /// </summary>
+    /// <remarks>
+    /// Finder's own "Open With" is a context submenu with no scripting entry point, so
+    /// this is as close as macOS comes to a system-provided picker: the same list of
+    /// applications, in a real system dialog. It cannot change the default handler for the
+    /// file type the way the Windows picker can — that lives in Get Info.
+    /// <para>
+    /// Cancelling the dialog makes osascript exit non-zero, which nothing here reads: the
+    /// user cancelling is not a failure to report back to them.
+    /// </para>
+    /// </remarks>
+    public override Task<bool> OpenWithAsync(string path, CancellationToken ct = default)
+    {
+        var full = Path.GetFullPath(path);
+
+        Start(Command(
+            "osascript",
+            "-e", "set chosen to choose application as alias",
+            "-e", "set app to POSIX path of chosen",
+            "-e", $"do shell script \"open -a \" & quoted form of app & \" \" & quoted form of {Quote(full)}"));
+
+        return Task.FromResult(true);
+    }
+
+    /// <summary>Wraps a path as an AppleScript string literal.</summary>
+    private static string Quote(string value) =>
+        "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                    .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+
     public override Task RevealAsync(string path, CancellationToken ct = default)
     {
         Start(Command("open", "-R", Path.GetFullPath(path)));
@@ -217,6 +284,44 @@ public sealed class LinuxPlatformServices : PlatformServicesBase
         // ends at xdg-open, but only after probing several fallbacks.
         Start(Command("xdg-open", Path.GetFullPath(path)));
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The desktop portal's chooser, asked for explicitly with <c>ask</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>xdg-open</c> has no equivalent — it goes straight to the default handler, which
+    /// is the thing being avoided. <c>org.freedesktop.portal.OpenURI</c> with
+    /// <c>ask: true</c> is the portal's documented way to demand the picker, and every
+    /// desktop that ships xdg-desktop-portal answers it with its own native dialog.
+    /// <para>
+    /// A system with no portal — a bare window manager, a container — has no such dialog
+    /// at all, and that is reported rather than papered over with the default handler.
+    /// </para>
+    /// </remarks>
+    public override Task<bool> OpenWithAsync(string path, CancellationToken ct = default)
+    {
+        var uri = new Uri(Path.GetFullPath(path)).AbsoluteUri;
+
+        try
+        {
+            Start(Command(
+                "gdbus",
+                "call",
+                "--session",
+                "--dest", "org.freedesktop.portal.Desktop",
+                "--object-path", "/org/freedesktop/portal/desktop",
+                "--method", "org.freedesktop.portal.OpenURI.OpenURI",
+                string.Empty,
+                uri,
+                "{'ask': <true>}"));
+
+            return Task.FromResult(true);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return Task.FromResult(false);
+        }
     }
 
     /// <remarks>

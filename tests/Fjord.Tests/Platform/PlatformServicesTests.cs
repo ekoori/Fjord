@@ -34,6 +34,26 @@ internal sealed class FakePlatform : IPlatformServices
         return Task.CompletedTask;
     }
 
+    public List<string> Chosen { get; } = [];
+
+    /// <summary>Set false to stand in for a system with no picker at all.</summary>
+    public bool HasChooser { get; set; } = true;
+
+    public Task<bool> OpenWithAsync(string path, CancellationToken ct = default)
+    {
+        if (FailWith is not null)
+        {
+            throw FailWith;
+        }
+
+        if (HasChooser)
+        {
+            Chosen.Add(path);
+        }
+
+        return Task.FromResult(HasChooser);
+    }
+
     public Task RevealAsync(string path, CancellationToken ct = default)
     {
         if (FailWith is not null)
@@ -82,6 +102,34 @@ public class PlatformCommandTests
 
         Assert.Empty(platform.Opened);
         Assert.Equal([$"navigate:{Path.Combine("/tmp", "sub")}"], pane.Log);
+    }
+
+    [Fact]
+    public async Task OpenWithAsksTheSystemForItsChooser()
+    {
+        var (parser, platform) = Setup();
+
+        await AwaitAll(parser, "open-with", new FakePane("/tmp", "notes.txt"));
+
+        Assert.Equal([Path.Combine("/tmp", "notes.txt")], platform.Chosen);
+
+        // The whole point is not to use the default handler.
+        Assert.Empty(platform.Opened);
+    }
+
+    [Fact]
+    public async Task NoChooserIsSaidOutLoudRatherThanFallingBackToTheDefault()
+    {
+        // Opening it with the default handler anyway would look like the dialog was
+        // dismissed, and would open the file the user was trying not to open that way.
+        var (parser, platform) = Setup();
+        platform.HasChooser = false;
+        var messages = new RecordingMessageSink();
+
+        await AwaitAll(parser, "open-with", new FakePane("/tmp", "notes.txt"), messages);
+
+        Assert.Empty(platform.Opened);
+        Assert.Contains("open with", messages.Last!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

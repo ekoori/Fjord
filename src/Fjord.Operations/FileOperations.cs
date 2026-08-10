@@ -1,3 +1,4 @@
+using Fjord.Core.FileSystem;
 using Fjord.Core.Operations;
 
 namespace Fjord.Operations;
@@ -464,6 +465,94 @@ public sealed class DeleteOperation : IFileOperation
 
     public Task UndoAsync(IOperationContext context, CancellationToken ct) =>
         throw new NotSupportedException("Permanent deletion cannot be undone.");
+}
+
+/// <summary>
+/// Copies entries out of an archive into a real directory.
+/// </summary>
+/// <remarks>
+/// A copy in every way the user can see — it is what pasting something yanked from inside
+/// an archive does — but it cannot share <see cref="CopyOperation"/>, because the sources
+/// are not paths the filesystem can open. Undo is the same: remove what was written, since
+/// the archive was never touched.
+/// </remarks>
+public sealed class ExtractOperation : FileOperationBase
+{
+    private readonly IReadOnlyList<string> _members;
+    private readonly string _destinationDirectory;
+
+    /// <param name="members">Paths inside an archive, as <c>archive.zip!/dir/name</c>.</param>
+    public ExtractOperation(IReadOnlyList<string> members, string destinationDirectory)
+    {
+        _members = members;
+        _destinationDirectory = destinationDirectory;
+    }
+
+    public override string Description =>
+        $"Extract {_members.Count} item{(_members.Count == 1 ? "" : "s")} to {Path.GetFileName(_destinationDirectory)}";
+
+    public override async Task ExecuteAsync(IOperationContext context, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        Directory.CreateDirectory(_destinationDirectory);
+
+        for (var i = 0; i < _members.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (ArchivePath.Parse(_members[i]) is not { } member)
+            {
+                throw new IOException($"'{_members[i]}' is not inside an archive.");
+            }
+
+            var name = LastSegment(member.Entry);
+            context.Report(new OperationProgress(i, _members.Count, name));
+
+            if (ResolveDestination(Path.Combine(_destinationDirectory, name), context)
+                is not { } destination)
+            {
+                continue;
+            }
+
+            if (UniquePath.Exists(destination))
+            {
+                DeleteRecursive(destination);
+            }
+
+            if (await ArchiveReader.ExtractTreeAsync(member, destination, ct).ConfigureAwait(false) == 0)
+            {
+                throw new FileNotFoundException(
+                    $"'{member.Entry}' is no longer in {Path.GetFileName(member.Archive)}.");
+            }
+
+            Performed.Add((_members[i], destination));
+        }
+
+        context.Report(new OperationProgress(_members.Count, _members.Count, null));
+    }
+
+    public override Task UndoAsync(IOperationContext context, CancellationToken ct)
+    {
+        for (var i = Performed.Count - 1; i >= 0; i--)
+        {
+            ct.ThrowIfCancellationRequested();
+            DeleteRecursive(Performed[i].To);
+        }
+
+        Performed.Clear();
+        return Task.CompletedTask;
+    }
+
+    /// <remarks>
+    /// Not <see cref="Path.GetFileName(string)"/>: archive keys use forward slashes
+    /// whatever the platform, and on Windows that would return the whole key unchanged.
+    /// </remarks>
+    private static string LastSegment(string entry)
+    {
+        var slash = entry.LastIndexOf('/');
+        return slash < 0 ? entry : entry[(slash + 1)..];
+    }
 }
 
 /// <summary>Creates an empty file or a directory.</summary>

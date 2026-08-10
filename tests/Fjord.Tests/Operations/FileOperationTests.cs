@@ -448,6 +448,74 @@ public class FileOperationTests
         Assert.Equal(3, context.Reports[^1].Current);
         Assert.Equal(1.0, context.Reports[^1].Fraction);
     }
+
+    private static string Zip(TempDirectory temp, params string[] entries)
+    {
+        var path = Path.Combine(temp.Path, "sample.zip");
+
+        using var file = File.Create(path);
+        using var zip = new System.IO.Compression.ZipArchive(
+            file, System.IO.Compression.ZipArchiveMode.Create);
+
+        foreach (var entry in entries)
+        {
+            using var stream = zip.CreateEntry(entry).Open();
+            stream.Write("contents"u8);
+        }
+
+        return path;
+    }
+
+    [Fact]
+    public async Task ExtractingPutsAnArchiveEntryOnDisk()
+    {
+        var (temp, context) = Setup();
+        using var _ = temp;
+        var zip = Zip(temp, "lib/one.dll");
+        var target = temp.CreateDir("out");
+
+        var member = new Fjord.Core.FileSystem.ArchivePath(zip, "lib/one.dll").ToString();
+        await new ExtractOperation([member], target).ExecuteAsync(context, default);
+
+        Assert.Equal("contents", File.ReadAllText(Path.Combine(target, "one.dll")));
+    }
+
+    [Fact]
+    public async Task ExtractingIsUndoneByRemovingWhatItWrote()
+    {
+        // The archive was never touched, so undo is the same as undoing a copy.
+        var (temp, context) = Setup();
+        using var _ = temp;
+        var zip = Zip(temp, "lib/one.dll", "lib/net10.0/two.dll");
+        var target = temp.CreateDir("out");
+
+        var member = new Fjord.Core.FileSystem.ArchivePath(zip, "lib").ToString();
+        var operation = new ExtractOperation([member], target);
+
+        await operation.ExecuteAsync(context, default);
+        Assert.True(Directory.Exists(Path.Combine(target, "lib")));
+
+        await operation.UndoAsync(context, default);
+
+        Assert.False(Directory.Exists(Path.Combine(target, "lib")));
+        Assert.True(File.Exists(zip));
+    }
+
+    [Fact]
+    public async Task ExtractingAnEntryThatIsGoneFails()
+    {
+        // The archive can have been replaced between the yank and the paste. Silently
+        // writing nothing would look exactly like a successful extraction.
+        var (temp, context) = Setup();
+        using var _ = temp;
+        var zip = Zip(temp, "lib/one.dll");
+        var target = temp.CreateDir("out");
+
+        var member = new Fjord.Core.FileSystem.ArchivePath(zip, "lib/gone.dll").ToString();
+
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => new ExtractOperation([member], target).ExecuteAsync(context, default));
+    }
 }
 
 public class UniquePathTests
