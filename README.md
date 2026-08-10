@@ -14,8 +14,8 @@ zip, recursive folder sizes, and the help page. Regenerate with
 `scripts/capture-screenshots.ps1` and `scripts/make-gif.py`.*
 
 > **Status: early but complete for v1.** Everything on the original v1 list is built.
-> Previews, an embedded terminal, git integration and plugins are not. There are no
-> releases yet — you build the archives yourself with `scripts/package.ps1`.
+> Previews, an embedded terminal, git integration and plugins are not. The first
+> packaged build is [v0.1.0-beta.1](https://github.com/ekoori/Fjord/releases/latest).
 
 ## What works
 
@@ -49,6 +49,7 @@ zip, recursive folder sizes, and the help page. Regenerate with
 
 ## Installing
 
+Grab an archive from [the latest release](https://github.com/ekoori/Fjord/releases/latest).
 One self-contained executable per platform. No runtime to install, nothing to unpack, no
 installer — download, extract, run. About 50 MB, because the .NET runtime and the whole
 rendering stack are inside it.
@@ -61,7 +62,7 @@ rendering stack are inside it.
 | macOS Intel | `fjord-<version>-osx-x64.tar.gz` |
 
 ```bash
-tar -xzf fjord-0.1.0-linux-x64.tar.gz
+tar -xzf fjord-0.1.0-beta.1-linux-x64.tar.gz
 ./Fjord
 ```
 
