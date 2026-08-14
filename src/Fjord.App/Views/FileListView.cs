@@ -123,6 +123,7 @@ public sealed class FileListView : Control, ILogicalScrollable
         Selection = selection;
         VisualAnchor = visualAnchor;
 
+        MeasureNoteColumn();
         InvalidateRowCache();
         RefreshView();
 
@@ -152,6 +153,7 @@ public sealed class FileListView : Control, ILogicalScrollable
             _cursor = 0;
             VisualAnchor = null;
             Selection.Clear();
+            MeasureNoteColumn();
             InvalidateRowCache();
             RefreshView();
         }
@@ -350,6 +352,9 @@ public sealed class FileListView : Control, ILogicalScrollable
         if (_viewport != finalSize)
         {
             _viewport = finalSize;
+
+            // The note column is capped as a share of the width, so a resize can change it.
+            MeasureNoteColumn();
             UpdateExtent();
         }
 
@@ -522,7 +527,7 @@ public sealed class FileListView : Control, ILogicalScrollable
             {
                 // Between the name and the size, so the numeric columns stay where the eye
                 // expects them whether or not this listing has notes.
-                context.DrawText(note, new Point(sizeX - theme.ColumnGap - theme.NoteColumnWidth, textY));
+                context.DrawText(note, new Point(sizeX - theme.ColumnGap - _noteWidth, textY));
             }
 
             context.DrawText(visual.Size, new Point(sizeX, textY));
@@ -561,7 +566,7 @@ public sealed class FileListView : Control, ILogicalScrollable
             16,
             _viewport.Width
             - theme.ModifiedColumnWidth - theme.SizeColumnWidth
-            - (note is null ? 0 : theme.NoteColumnWidth + theme.ColumnGap)
+            - (note is null ? 0 : _noteWidth + theme.ColumnGap)
             - (theme.ColumnGap * 2) - (theme.LeftPadding * 2) - theme.CursorBarWidth);
 
         var built = new RowVisual(
@@ -572,7 +577,7 @@ public sealed class FileListView : Control, ILogicalScrollable
             Text(FormatModified(in entry), theme.MutedText, theme.ModifiedColumnWidth, theme, TextAlignment.Right),
             note is null
                 ? null
-                : Text(note, theme.CursorBar, theme.NoteColumnWidth, theme, TextAlignment.Left));
+                : Text(note, theme.CursorBar, _noteWidth, theme, TextAlignment.Left));
 
         _visuals[slot] = built;
         return built;
@@ -656,6 +661,56 @@ public sealed class FileListView : Control, ILogicalScrollable
         return _snapshot?.DirectorySizes.TryGetValue(entry.Name, out var measured) == true
             ? SizeFormatter.Format(measured)
             : string.Empty;
+    }
+
+    /// <summary>
+    /// How wide the note column is for the listing on screen, or 0 when it has no notes.
+    /// </summary>
+    /// <remarks>
+    /// Measured rather than fixed. A scrapbook note is a short reminder and the old fixed
+    /// column suited it, but the same column carries a drive's label, capacity, free space
+    /// and filesystem — which the fixed width cut off in the middle of the free space, the
+    /// one number anybody was reading it for.
+    /// </remarks>
+    private double _noteWidth;
+
+    /// <summary>
+    /// Sizes the note column to the widest note, within limits.
+    /// </summary>
+    /// <remarks>
+    /// Once per listing, not per row: this measures every note, which is fine across the
+    /// dozens a scrapbook or a drive list holds and would not be per frame. The cap is what
+    /// stops one long note from squeezing the names down to nothing — beyond it, trimming
+    /// the note is the lesser loss.
+    /// </remarks>
+    private void MeasureNoteColumn()
+    {
+        _noteWidth = 0;
+
+        if (_snapshot?.Annotations is not { Count: > 0 } notes)
+        {
+            return;
+        }
+
+        var widest = 0.0;
+
+        foreach (var note in notes.Values)
+        {
+            if (note.Length == 0)
+            {
+                continue;
+            }
+
+            widest = Math.Max(widest, Text(
+                note, _theme.MutedText, double.PositiveInfinity, _theme, TextAlignment.Left).Width);
+        }
+
+        // Never narrower than the old fixed column, so a listing of one-word notes still
+        // has a column rather than a ragged edge.
+        var floor = _theme.NoteColumnWidth;
+        var ceiling = Math.Max(floor, _viewport.Width * 0.5);
+
+        _noteWidth = Math.Clamp(Math.Ceiling(widest) + _theme.ColumnGap, floor, ceiling);
     }
 
     /// <summary>The note against an entry, or null when this listing has none.</summary>

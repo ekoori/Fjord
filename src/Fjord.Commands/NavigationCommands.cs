@@ -198,9 +198,14 @@ public sealed class NavigationCommands
     }
 
     [Command("leave", Aliases = ["up"], Group = "Navigation",
-        Description = "Go to the parent directory, or leave a scrapbook")]
-    public Task Leave([CommandArgument(Value = CommandValue.Pane)] IPane pane)
+        Description = "Go to the parent directory, the roots, or out of a scrapbook")]
+    public Task Leave(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
         // A scrapbook has no parent. Every instinct for getting out of a listing — h,
         // Backspace, Left, Escape — should get you out of one.
         if (pane.IsVirtual)
@@ -223,13 +228,33 @@ public sealed class NavigationCommands
         var parent = Path.GetDirectoryName(pane.Directory.TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
+        // A drive root has no parent directory, and until now h simply did nothing there —
+        // a dead end at the one place you most want to go somewhere else. The drives are
+        // what is above C:\, so that is where up goes, with the drive just left under the
+        // cursor like any other step upwards.
         if (string.IsNullOrEmpty(parent))
         {
-            return Task.CompletedTask;
+            return LeaveRoot(pane, messages);
         }
 
         // Select the directory just left, so up-then-down returns to where you were.
         return pane.NavigateAsync(parent, Path.GetFileName(pane.Directory));
+    }
+
+    /// <remarks>
+    /// On Unix "/" is a root that <see cref="IPlatformServices.GetRoots"/> also reports, so
+    /// going up from it shows the same list with itself selected rather than doing nothing.
+    /// That is not a special case worth avoiding: the mounts beside it are exactly what
+    /// someone pressing h at "/" is looking for.
+    /// </remarks>
+    private async Task LeaveRoot(IPane pane, IMessageSink messages)
+    {
+        // Constructed without a platform in the tests that only exercise navigation.
+        if (_platform is null
+            || !await RootListing.ShowAsync(_platform, pane, pane.Directory).ConfigureAwait(true))
+        {
+            messages.Warning("Already at the top; no roots to show.");
+        }
     }
 
     /// <summary>

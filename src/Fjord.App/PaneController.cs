@@ -37,6 +37,10 @@ public sealed class PaneController : IPane
     // What opening a row means, when the rows are names rather than paths.
     private Func<string, Task>? _openVirtual;
 
+    // What a virtual listing's entry names are relative to, when they are relative to
+    // anything. Null means the names are whole paths, which is what a scrapbook holds.
+    private string? _virtualRoot;
+
     // Virtual listings this pane has shown, by label. Small and bounded by how many
     // scrapbooks the user opens in one tab, and cleared with the pane.
     private readonly Dictionary<string, VirtualListing> _virtualListings = new(StringComparer.Ordinal);
@@ -250,7 +254,10 @@ public sealed class PaneController : IPane
             return null;
         }
 
-        var path = Path.Combine(Directory, view[row].Name);
+        // A rooted listing shows each entry as a path relative to where it was gathered
+        // from, so that is what the name has to be resolved against. Directory is a label
+        // like "find:*.cs" and would produce nonsense.
+        var path = Path.Combine(_virtualRoot ?? Directory, view[row].Name);
 
         if (!PathSafety.IsAddressable(path))
         {
@@ -283,7 +290,7 @@ public sealed class PaneController : IPane
         if (_virtualListings.TryGetValue(directory, out var remembered))
         {
             await ShowVirtualAsync(
-                directory, remembered.Paths, remembered.Annotations, remembered.Open)
+                directory, remembered.Paths, remembered.Annotations, remembered.Open, remembered.Root)
                 .ConfigureAwait(true);
 
             if (selectName is not null)
@@ -334,6 +341,7 @@ public sealed class PaneController : IPane
         // folder does not leave the pane thinking it is still in the scrapbook.
         _leftBehind = null;
         _openVirtual = null;
+        _virtualRoot = null;
 
         if (recordHistory)
         {
@@ -392,8 +400,9 @@ public sealed class PaneController : IPane
     Task IPane.ShowListingAsync(
         string label,
         IReadOnlyList<string> paths,
-        IReadOnlyDictionary<string, string>? notes) =>
-        ShowVirtualAsync(label, paths, notes);
+        IReadOnlyDictionary<string, string>? notes,
+        string? root) =>
+        ShowVirtualAsync(label, paths, notes, open: null, root);
 
     /// <param name="annotations">
     /// A note per entry, shown in its own column. Keyed by the entry name, which for a
@@ -403,11 +412,16 @@ public sealed class PaneController : IPane
     /// What Enter on a row means, when the rows are names rather than paths. Null leaves
     /// them behaving like ordinary entries.
     /// </param>
+    /// <param name="root">
+    /// The directory <paramref name="paths"/> are relative to, when they are relative.
+    /// Null means they are whole paths.
+    /// </param>
     public async Task ShowVirtualAsync(
         string label,
         IReadOnlyList<string> paths,
         IReadOnlyDictionary<string, string>? annotations = null,
-        Func<string, Task>? open = null)
+        Func<string, Task>? open = null,
+        string? root = null)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
@@ -416,7 +430,7 @@ public sealed class PaneController : IPane
         // must not spawn anything — that is what a note or a removal does.
         if (!string.Equals(Directory, label, StringComparison.Ordinal)
             && Redirect is { } redirect
-            && redirect(pane => pane.ShowVirtualAsync(label, paths, annotations, open)))
+            && redirect(pane => pane.ShowVirtualAsync(label, paths, annotations, open, root)))
         {
             return;
         }
@@ -430,7 +444,7 @@ public sealed class PaneController : IPane
         // one cannot be a matter of listing a directory — without this, entering a folder
         // from a scrapbook and pressing back landed on whatever the tab showed before the
         // scrapbook was ever opened.
-        _virtualListings[label] = new VirtualListing(paths, annotations, open);
+        _virtualListings[label] = new VirtualListing(paths, annotations, open, root);
 
         var reshowing = string.Equals(Directory, label, StringComparison.Ordinal);
 
@@ -458,11 +472,14 @@ public sealed class PaneController : IPane
             Annotations = annotations,
         };
 
-        snapshot.Append(paths.Select(SessionHost.DescribePath).ToArray());
+        snapshot.Append(paths
+            .Select(p => SessionHost.DescribePath(root is null ? p : Path.Combine(root, p), p))
+            .ToArray());
         snapshot.Complete();
 
         Snapshot = snapshot;
         _openVirtual = open;
+        _virtualRoot = root;
 
         if (_isActive)
         {
@@ -482,7 +499,8 @@ public sealed class PaneController : IPane
     private sealed record VirtualListing(
         IReadOnlyList<string> Paths,
         IReadOnlyDictionary<string, string>? Annotations,
-        Func<string, Task>? Open);
+        Func<string, Task>? Open,
+        string? Root);
 
     public bool IsVirtual => _leftBehind is not null;
 

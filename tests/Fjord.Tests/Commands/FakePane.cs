@@ -116,7 +116,10 @@ public sealed class FakePane : IPane
     public bool IsVirtual { get; set; }
 
     /// <summary>The last made-up listing this pane was asked to show.</summary>
-    public (string Label, IReadOnlyList<string> Paths, IReadOnlyDictionary<string, string>? Notes)? Shown
+    public (string Label,
+            IReadOnlyList<string> Paths,
+            IReadOnlyDictionary<string, string>? Notes,
+            string? Root)? Shown
     {
         get;
         private set;
@@ -125,9 +128,10 @@ public sealed class FakePane : IPane
     public Task ShowListingAsync(
         string label,
         IReadOnlyList<string> paths,
-        IReadOnlyDictionary<string, string>? notes = null)
+        IReadOnlyDictionary<string, string>? notes = null,
+        string? root = null)
     {
-        Shown = (label, paths, notes);
+        Shown = (label, paths, notes, root);
         IsVirtual = true;
         Directory = label;
         return Task.CompletedTask;

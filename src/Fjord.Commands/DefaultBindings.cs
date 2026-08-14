@@ -49,8 +49,10 @@ public static class DefaultBindings
                 ["~"] = "go-home",
                 ["o"] = "open-with-default",
 
-                // Free since history moved to Ctrl-h/Ctrl-l below, and next to plain o,
-                // which opens with whatever the system already decided.
+                // Beside plain o, which opens with whatever the system already decided.
+                // Both, because the shifted letter is the pair to the unshifted one and
+                // Ctrl-o is what the rest of the desktop uses for opening.
+                ["O"] = "open-with",
                 ["<Ctrl+o>"] = "open-with",
                 ["R"] = "reveal",
                 // Ctrl-h/Ctrl-l rather than vim's Ctrl-o/Ctrl-i: h and l already mean
@@ -85,9 +87,14 @@ public static class DefaultBindings
                 ["<Ctrl+w>"] = "tab-close",
                 ["<Ctrl+Shift+t>"] = "tab-undo-close",
 
+                // Shifted H and L move between tabs; with Ctrl as well they take the tab
+                // with them, which is the same gesture every browser uses for reordering.
+                ["<Ctrl+Shift+h>"] = "tab-move-left",
+                ["<Ctrl+Shift+l>"] = "tab-move-right",
+
                 // Search. Escape already clears the selection; it clears the filter too,
                 // which is the more urgent of the two when one is active. The explicit key
-                // is shifted because Ctrl-l is history-forward.
+                // is Ctrl and the same slash that started the search.
                 ["/"] = "search-open",
                 ["<Ctrl+/>"] = "search-clear",
 

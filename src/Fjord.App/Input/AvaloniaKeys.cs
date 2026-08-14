@@ -61,6 +61,45 @@ internal static class AvaloniaKeys
     };
 
     /// <summary>
+    /// The unshifted character each punctuation key produces on a US layout.
+    /// </summary>
+    /// <remarks>
+    /// Only consulted when <see cref="KeyEventArgs.KeySymbol"/> gave nothing usable, which
+    /// on Windows is every Ctrl+punctuation combination: the OS turns Ctrl+/ into U+001F
+    /// rather than into "/", and a control character is not something a binding can be
+    /// written in terms of. Without this, <c>&lt;Ctrl+/&gt;</c> and every binding like it
+    /// silently never matched — the key was accepted by the config and then dropped on the
+    /// way in.
+    /// <para>
+    /// A layout guess, and knowingly so. It is only reached for modifier combinations,
+    /// where the alternative is not "the right character" but no key at all; anything
+    /// typed without Ctrl still goes through KeySymbol and is correct on every layout.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<Avalonia.Input.Key, char> Punctuation = new()
+    {
+        [Avalonia.Input.Key.OemQuestion] = '/',
+        [Avalonia.Input.Key.OemPeriod] = '.',
+        [Avalonia.Input.Key.OemComma] = ',',
+        [Avalonia.Input.Key.OemMinus] = '-',
+        [Avalonia.Input.Key.OemPlus] = '=',
+        [Avalonia.Input.Key.OemTilde] = '`',
+        [Avalonia.Input.Key.OemSemicolon] = ';',
+        [Avalonia.Input.Key.OemQuotes] = '\'',
+        [Avalonia.Input.Key.OemOpenBrackets] = '[',
+        [Avalonia.Input.Key.OemCloseBrackets] = ']',
+        [Avalonia.Input.Key.OemPipe] = '\\',
+        [Avalonia.Input.Key.OemBackslash] = '\\',
+
+        // The keypad's own punctuation, which reports separately from the main block.
+        [Avalonia.Input.Key.Divide] = '/',
+        [Avalonia.Input.Key.Multiply] = '*',
+        [Avalonia.Input.Key.Subtract] = '-',
+        [Avalonia.Input.Key.Add] = '+',
+        [Avalonia.Input.Key.Decimal] = '.',
+    };
+
+    /// <summary>
     /// Converts a key event, or returns null for a key that carries no meaning on its own.
     /// </summary>
     /// <remarks>
@@ -119,6 +158,14 @@ internal static class AvaloniaKeys
             return new KeyInfo(
                 (CoreKey)char.ToUpperInvariant(symbol[0]),
                 modifiers & ~CoreModifiers.Shift);
+        }
+
+        // No usable character, which means a modifier combination the OS declined to turn
+        // into text. Fall back to what the physical key normally produces, and keep Shift
+        // this time: unlike above, the character no longer carries it.
+        if (Punctuation.TryGetValue(e.Key, out var punctuation))
+        {
+            return new KeyInfo((CoreKey)punctuation, modifiers);
         }
 
         return null;

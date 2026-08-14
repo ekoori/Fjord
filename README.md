@@ -25,8 +25,8 @@ zip, recursive folder sizes, and the help page. Regenerate with
 - **File operations.** Copy, move, rename, duplicate, trash, mkdir, touch — queued,
   cancellable, with progress, and **undoable** with `u`.
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
-- **Open with.** `Ctrl-o` hands the file to the system's own chooser — the one that can
-  also change which application owns the type from then on.
+- **Open with.** `O` hands the file to the system's own chooser — the one that can also
+  change which application owns the type from then on.
 - **Tabs** with `L`/`H`, and history with `Ctrl-h`/`Ctrl-l`.
 - **Registers and quickmarks.** `"ay` collects into `"a`; `m` names the directory you are
   in and `:cd <name>` goes back to it. Quickmarks survive a restart.
@@ -38,6 +38,9 @@ zip, recursive folder sizes, and the help page. Regenerate with
 - **A `:` command line** with history and path completion.
 - **Fuzzy search.** `/` narrows the listing to what matches: `dbp` finds
   `Directory.Build.props`. `Ctrl-/` puts the rest back.
+- **Search into subfolders.** `:find Entry` walks everything below you and lists the hits
+  as paths relative to where you started — and they behave like ordinary entries, so
+  Enter, `y` and `d` all work on them.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
 - **Scrapbooks.** Collect entries from anywhere into a virtual list and act on them together.
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
@@ -108,8 +111,8 @@ out of date.
 | `j` `k` | move down / up |
 | `gg` `G` | first / last entry |
 | `l` `Enter` | open — a directory, or a file in its default application |
-| `o` `Ctrl-o` | open with the default application / with one you pick |
-| `h` `Backspace` | parent directory |
+| `o` `O` | open with the default application / with one you pick |
+| `h` `Backspace` | parent directory — or the drive list, at the top of one |
 | `Space` | select, and advance |
 | `v` | visual mode |
 | `y` `x` | yank / cut — operators, so `y2j` takes three rows |
@@ -119,6 +122,7 @@ out of date.
 | `u` `Ctrl-r` | undo / redo |
 | `/` `Ctrl-/` | search — narrows the listing / puts it back |
 | `Ctrl-d` | measure every folder here, recursively |
+| `:find` | search this directory and everything under it |
 | `S` `gs` | add to scrapbook / open it |
 | `"a` | use register `a` for the next yank, cut or paste |
 | `m` | name this directory as a quickmark |
@@ -126,6 +130,7 @@ out of date.
 | `F2` | rename, with the current name filled in |
 | `Y` | copy the full paths to the system clipboard as text |
 | `L` `H` | next / previous tab |
+| `Ctrl-Shift-h` `Ctrl-Shift-l` | move this tab left / right |
 | `Ctrl-h` `Ctrl-l` | back / forward |
 | `Ctrl-F2` | name this tab |
 | `?` | help |

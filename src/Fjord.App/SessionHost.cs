@@ -134,24 +134,32 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
     }
 
     /// <summary>Builds an entry for a path that may no longer exist.</summary>
+    /// <param name="path">Where to look on disk.</param>
+    /// <param name="name">
+    /// What the listing shows. Defaults to the path itself, which is what a scrapbook
+    /// wants; a search result passes the path relative to where the search started, so
+    /// the column reads as a location rather than as forty characters of shared prefix.
+    /// </param>
     /// <remarks>
     /// A scrapbook outlives what it points at. A missing item is flagged rather than
     /// dropped, so the user can see what went and remove it deliberately.
     /// </remarks>
-    internal static FileEntry DescribePath(string path)
+    internal static FileEntry DescribePath(string path, string? name = null)
     {
+        var shown = name ?? path;
+
         try
         {
             if (Directory.Exists(path))
             {
                 var info = new DirectoryInfo(path);
-                return new FileEntry(path, -1, info.LastWriteTimeUtc.Ticks, EntryFlags.Directory);
+                return new FileEntry(shown, -1, info.LastWriteTimeUtc.Ticks, EntryFlags.Directory);
             }
 
             if (File.Exists(path))
             {
                 var info = new FileInfo(path);
-                return new FileEntry(path, info.Length, info.LastWriteTimeUtc.Ticks, EntryFlags.None);
+                return new FileEntry(shown, info.Length, info.LastWriteTimeUtc.Ticks, EntryFlags.None);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -159,6 +167,6 @@ public sealed class SessionHost : ISessionHost, IScrapbookHost
             // Unreadable is as good as broken for display purposes.
         }
 
-        return new FileEntry(path, -1, 0, EntryFlags.Broken);
+        return new FileEntry(shown, -1, 0, EntryFlags.Broken);
     }
 }

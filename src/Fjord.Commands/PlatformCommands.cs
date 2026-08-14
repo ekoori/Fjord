@@ -1,5 +1,4 @@
 using Fjord.Core.Diagnostics;
-using Fjord.Core.FileSystem;
 using Fjord.Core.Panes;
 using Fjord.Core.Platform;
 
@@ -102,48 +101,10 @@ public sealed class PlatformCommands
         ArgumentNullException.ThrowIfNull(pane);
         ArgumentNullException.ThrowIfNull(messages);
 
-        var roots = _platform.GetRoots();
-
-        if (roots.Count == 0)
+        if (!await RootListing.ShowAsync(_platform, pane).ConfigureAwait(true))
         {
             messages.Warning("No roots found.");
-            return;
         }
-
-        // Keyed by path, because that is the entry name a virtual listing carries and what
-        // Enter will navigate to.
-        var described = roots.ToDictionary(
-            r => r.Path,
-            Describe,
-            StringComparer.Ordinal);
-
-        await pane.ShowListingAsync(
-            "roots",
-            [.. roots.Select(r => r.Path)],
-            described)
-            .ConfigureAwait(true);
-    }
-
-    /// <summary>
-    /// A root's label, size, free space and filesystem, as one line.
-    /// </summary>
-    /// <remarks>
-    /// Free before total, because free is the number anyone reading this is looking for.
-    /// A volume that reported nothing shows its label alone rather than zeroes, which would
-    /// read as a full disk.
-    /// </remarks>
-    private static string Describe(PlatformRoot root)
-    {
-        if (root.Volume is not { TotalBytes: { } total, FreeBytes: { } free })
-        {
-            return root.Label;
-        }
-
-        var used = total == 0 ? 0 : (int)Math.Round(100.0 * (total - free) / total);
-        var fileSystem = root.Volume.FileSystem is { Length: > 0 } fs ? $"  {fs}" : string.Empty;
-
-        return $"{root.Label}   {SizeFormatter.Format(free)} free of "
-            + $"{SizeFormatter.Format(total)}  ({used}% used){fileSystem}";
     }
 
     /// <summary>

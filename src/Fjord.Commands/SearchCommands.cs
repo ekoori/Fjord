@@ -1,4 +1,5 @@
 using Fjord.Core.Diagnostics;
+using Fjord.Core.FileSystem;
 using Fjord.Core.Panes;
 
 namespace Fjord.Commands;
@@ -47,6 +48,72 @@ public sealed class SearchCommands
             shown == 0
                 ? $"No match for '{trimmed}'."
                 : $"{shown} of {total} match '{trimmed}'.");
+    }
+
+    /// <summary>
+    /// Searches everything beneath the current directory and shows what it found.
+    /// </summary>
+    /// <remarks>
+    /// A separate command rather than a flag on <c>:search</c>, because it is a different
+    /// kind of thing: <c>:search</c> narrows what is already on screen and reacts instantly,
+    /// this walks the disk and can take a while over a large tree. Giving them one name
+    /// would mean one of the two behaved surprisingly.
+    /// <para>
+    /// Results arrive as a listing rooted at the directory searched, so Enter, the cursor
+    /// and every operator work on them exactly as they would on real entries — the rows
+    /// just happen to read as paths.
+    /// </para>
+    /// </remarks>
+    [Command("find", Aliases = ["search-recursive"], Group = "Search", MaxSplit = 0,
+        Description = "Search this directory and everything under it")]
+    public async Task Find(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages,
+        [CommandArgument(Description = "Fuzzy pattern matched against each name")] string pattern = "")
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(pattern);
+
+        var trimmed = pattern.Trim();
+
+        if (trimmed.Length == 0)
+        {
+            messages.Error("Nothing to find. Give :find a pattern.");
+            return;
+        }
+
+        var root = pane.Directory;
+
+        if (pane.IsVirtual || ArchivePath.IsInside(root) || !Directory.Exists(root))
+        {
+            messages.Error("Can only search a real directory.");
+            return;
+        }
+
+        messages.Info($"Searching {root} for '{trimmed}'…");
+
+        // Off the UI thread: the walk is synchronous and can run for seconds over a deep
+        // tree, and a file manager that stops repainting while it looks for something is
+        // indistinguishable from one that has hung.
+        var results = await Task.Run(
+            () => RecursiveSearch.Find(root, trimmed, pane.Filter.ShowHidden))
+            .ConfigureAwait(true);
+
+        if (results.Paths.Count == 0)
+        {
+            messages.Message(MessageLevel.Warning, $"Nothing under {root} matches '{trimmed}'.");
+            return;
+        }
+
+        await pane.ShowListingAsync($"find:{trimmed}", results.Paths, notes: null, root)
+            .ConfigureAwait(true);
+
+        messages.Message(
+            results.Truncated ? MessageLevel.Warning : MessageLevel.Info,
+            results.Truncated
+                ? $"Showing the first {results.Paths.Count} matches for '{trimmed}'; narrow the pattern to see the rest."
+                : $"{results.Paths.Count} of {results.Examined} match '{trimmed}'.");
     }
 
     /// <remarks>

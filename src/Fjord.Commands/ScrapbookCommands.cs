@@ -236,8 +236,28 @@ public sealed class ScrapbookCommands
             .ConfigureAwait(true);
     }
 
+    /// <summary>What every scrapbook listing's label starts with.</summary>
+    public const string LabelPrefix = "scrapbook:";
+
     /// <summary>How a scrapbook listing labels itself. The pane shows this as its directory.</summary>
-    public static string ScrapbookLabel(string name) => $"scrapbook:{name}";
+    public static string ScrapbookLabel(string name) => LabelPrefix + name;
+
+    /// <summary>
+    /// Whether a pane is showing a scrapbook, as opposed to some other made-up listing.
+    /// </summary>
+    /// <remarks>
+    /// Not the same question as <see cref="IPane.IsVirtual"/>, which is true of the drive
+    /// list and of search results too. Scrapbook mode rebinds dd to scrap-remove, and on a
+    /// list of search results that is the wrong verb entirely — dd there should trash the
+    /// file, as it does everywhere else.
+    /// </remarks>
+    public static bool IsScrapbook(IPane pane)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+
+        return pane.IsVirtual
+            && pane.Directory.StartsWith(LabelPrefix, StringComparison.Ordinal);
+    }
 
     private static string Named(string name)
     {

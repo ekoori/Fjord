@@ -127,7 +127,12 @@ public sealed class InputController : IModeHost
             return;
         }
 
-        var wanted = pane is { IsVirtual: true } ? KeyMode.Scrapbook : KeyMode.Normal;
+        // Scrapbook mode, not virtual-listing mode: the drive list and search results are
+        // virtual too, and rebinding dd to scrap-remove on those means the key that trashes
+        // a file everywhere else quietly does something else there.
+        var wanted = pane is not null && Fjord.Commands.ScrapbookCommands.IsScrapbook(pane)
+            ? KeyMode.Scrapbook
+            : KeyMode.Normal;
 
         if (_modes.Mode != wanted)
         {

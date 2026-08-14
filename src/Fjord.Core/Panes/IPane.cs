@@ -86,10 +86,17 @@ public interface IPane
     /// from elsewhere — a scrapbook, the list of drives — is the same thing to the pane,
     /// and giving each its own mechanism would mean three that behaved slightly differently.
     /// </remarks>
+    /// <param name="root">
+    /// The directory <paramref name="paths"/> are relative to, when they are relative
+    /// rather than whole. A search shows each hit as a path relative to where the search
+    /// started — forty characters of shared prefix on every row says nothing — and this
+    /// is what the cursor, Enter and every operator resolve those names against.
+    /// </param>
     Task ShowListingAsync(
         string label,
         IReadOnlyList<string> paths,
-        IReadOnlyDictionary<string, string>? notes = null);
+        IReadOnlyDictionary<string, string>? notes = null,
+        string? root = null);
 
     /// <summary>
     /// Opens the row of a virtual listing whose entries are not paths.

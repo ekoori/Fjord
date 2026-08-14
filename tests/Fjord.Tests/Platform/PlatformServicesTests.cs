@@ -212,8 +212,7 @@ public class PlatformCommandTests
         var note = pane.Shown!.Value.Notes!["/"];
 
         Assert.Contains("Filesystem", note, StringComparison.Ordinal);
-        Assert.Contains("free of", note, StringComparison.Ordinal);
-        Assert.Contains("75% used", note, StringComparison.Ordinal);
+        Assert.Contains("125 GB free of 500 GB", note, StringComparison.Ordinal);
         Assert.Contains("ext4", note, StringComparison.Ordinal);
     }
 
@@ -228,6 +227,38 @@ public class PlatformCommandTests
         await AwaitAll(parser, "roots", pane);
 
         Assert.DoesNotContain("free of", pane.Shown!.Value.Notes!["D:\\"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GoingUpFromADriveRootShowsTheRoots()
+    {
+        // A drive root has no parent directory, so h used to do nothing at all there — a
+        // dead end at the one place you most want to be able to go somewhere else.
+        var (parser, platform) = Setup();
+        platform.Roots =
+        [
+            new PlatformRoot("/", "Filesystem", RootKind.Drive),
+            new PlatformRoot("/home/u", "Home", RootKind.Home),
+        ];
+
+        var pane = new FakePane("/");
+        await AwaitAll(parser, "up", pane);
+
+        Assert.NotNull(pane.Shown);
+        Assert.Equal("roots", pane.Shown!.Value.Label);
+    }
+
+    [Fact]
+    public async Task GoingUpFromADirectoryStillGoesToItsParent()
+    {
+        var (parser, platform) = Setup();
+        platform.Roots = [new PlatformRoot("/", "Filesystem", RootKind.Drive)];
+
+        var pane = new FakePane("/home/u/work");
+        await AwaitAll(parser, "up", pane);
+
+        Assert.Null(pane.Shown);
+        Assert.Contains(pane.Log, l => l.StartsWith("navigate:", StringComparison.Ordinal));
     }
 
     [Fact]
