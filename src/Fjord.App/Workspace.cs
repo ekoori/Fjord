@@ -113,9 +113,22 @@ public sealed class Workspace : IWorkspace
     /// closure holding position 2 would start diverting the wrong tab as soon as one to its
     /// left was closed.
     /// </remarks>
+    /// <summary>Raised by any pane in any tab when its state changed.</summary>
+    /// <remarks>
+    /// Subscribed once here rather than by whoever happens to create a tab. The window used
+    /// to wire the very first pane and nothing else, so a listing that arrived in a tab
+    /// opened later — by Ctrl-t, by a lock, or by another launch handing over a folder —
+    /// never told the status bar it had finished. The count sat at "loading 0" over a
+    /// listing that was plainly there, until the next keystroke refreshed the chrome by
+    /// coincidence.
+    /// </remarks>
+    public event EventHandler? PaneChanged;
+
     private Tab NewTab()
     {
         var tab = new Tab(_createPane());
+
+        tab.Controller.Changed += (_, e) => PaneChanged?.Invoke(tab.Controller, e);
 
         tab.Controller.Redirect = show =>
         {

@@ -40,7 +40,10 @@ zip, recursive folder sizes, and the help page. Regenerate with
   `Directory.Build.props`. `Ctrl-/` puts the rest back.
 - **Search into subfolders.** `:find Entry` walks everything below you and lists the hits
   as paths relative to where you started — and they behave like ordinary entries, so
-  Enter, `y` and `d` all work on them.
+  Enter, `y` and `d` all work on them. `gf` goes to the folder a result lives in.
+- **The system's file manager, if you want it.** `:default-file-manager` toggles whether
+  folders open in Fjord, for your account only. Folders opened from elsewhere arrive as
+  tabs in the window already running, not as a second window.
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
 - **Scrapbooks.** Collect entries from anywhere into a virtual list and act on them together.
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
@@ -123,6 +126,7 @@ out of date.
 | `/` `Ctrl-/` | search — narrows the listing / puts it back |
 | `Ctrl-d` | measure every folder here, recursively |
 | `:find` | search this directory and everything under it |
+| `gf` | go to the folder holding the entry under the cursor |
 | `S` `gs` | add to scrapbook / open it |
 | `"a` | use register `a` for the next yank, cut or paste |
 | `m` | name this directory as a quickmark |

@@ -126,10 +126,29 @@ public sealed class NavigationCommands
             return EnterVirtualAsync(pane, messages);
         }
 
-        ref readonly var entry = ref view[pane.CursorIndex];
-        var path = Path.Combine(pane.Directory, entry.Name);
+        return pane.PathAt(pane.CursorIndex) is { } path
+            ? OpenPathAsync(pane, path, view[pane.CursorIndex].IsDirectory, messages)
+            : Task.CompletedTask;
+    }
 
-        if (entry.IsDirectory)
+    /// <summary>
+    /// What Enter means once the path is known: navigate, browse, or hand to the system.
+    /// </summary>
+    /// <remarks>
+    /// One place, so a row in a search result or a scrapbook opens exactly as the same file
+    /// would in its own directory. They used to differ: the virtual path took a shortcut
+    /// that checked only whether the path was a directory, so pressing Enter on a .zip in a
+    /// scrapbook handed it to the OS instead of browsing into it.
+    /// </remarks>
+    /// <param name="isDirectory">
+    /// What the listing already knows. Taken rather than re-checked with
+    /// <see cref="System.IO.Directory.Exists"/>: the flag came out of the enumeration for
+    /// free, the check is a syscall on every Enter, and inside an archive there is nothing
+    /// on disk for it to find.
+    /// </param>
+    private Task OpenPathAsync(IPane pane, string path, bool isDirectory, IMessageSink messages)
+    {
+        if (isDirectory)
         {
             return pane.NavigateAsync(path);
         }
@@ -137,14 +156,14 @@ public sealed class NavigationCommands
         // An archive opens as a directory rather than being handed to the OS. Browsing into
         // one is what the user meant by pressing Enter on it; the OS handler is what :open
         // is for.
-        if (ArchivePath.IsArchive(entry.Name) && !ArchivePath.IsInside(pane.Directory))
+        if (ArchivePath.IsArchive(path) && !ArchivePath.IsInside(path))
         {
             return pane.NavigateAsync(new ArchivePath(path, string.Empty).ToString());
         }
 
         if (_platform is null)
         {
-            messages.Info($"Not a directory: {entry.Name}");
+            messages.Info($"Not a directory: {Path.GetFileName(path)}");
             return Task.CompletedTask;
         }
 
@@ -161,24 +180,55 @@ public sealed class NavigationCommands
             return;
         }
 
-        // An ordinary virtual listing — a scrapbook — holds real paths as its names, so
-        // opening a row means the same thing it does anywhere else.
+        // An ordinary virtual listing — a scrapbook, a search result — points at real
+        // files, so opening a row means what it means anywhere else. Asking the pane for
+        // the path rather than joining it here is what makes a search result work: its
+        // names are relative, and only the pane knows what to.
         var view = pane.Snapshot?.View ?? default;
-        if (view.Count == 0 || pane.CursorIndex >= view.Count)
+
+        if (pane.CursorIndex < view.Count && pane.PathAt(pane.CursorIndex) is { } path)
         {
-            return;
+            await OpenPathAsync(pane, path, view[pane.CursorIndex].IsDirectory, messages)
+                .ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Goes to the folder holding the entry under the cursor, with the cursor on it.
+    /// </summary>
+    /// <remarks>
+    /// The usual next thing after a search: you found the file, and what you actually want
+    /// is the folder it lives in and everything beside it. Works anywhere, but it is in a
+    /// search result or a scrapbook — where the surroundings are exactly what a row does
+    /// not show — that it earns its key.
+    /// </remarks>
+    [Command("goto-folder", Aliases = ["cd-here"], Group = "Navigation",
+        Description = "Go to the folder holding the entry under the cursor")]
+    public Task GotoFolder(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        if (pane.PathAt(pane.CursorIndex) is not { } path)
+        {
+            return Task.CompletedTask;
         }
 
-        var path = Path.Combine(pane.Directory, view[pane.CursorIndex].Name);
+        // A folder's own folder is its parent; a file's is the one it sits in. Going into
+        // the folder under the cursor is what Enter is for, so this stays "show me where
+        // this thing is" in both cases.
+        var folder = Path.GetDirectoryName(path.TrimEnd(
+            Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
-        if (System.IO.Directory.Exists(path))
+        if (string.IsNullOrEmpty(folder))
         {
-            await pane.NavigateAsync(path).ConfigureAwait(true);
+            messages.Warning($"{Path.GetFileName(path)} has no containing folder.");
+            return Task.CompletedTask;
         }
-        else if (_platform is not null)
-        {
-            await OpenFileAsync(path, messages).ConfigureAwait(true);
-        }
+
+        return pane.NavigateAsync(folder, Path.GetFileName(path));
     }
 
     private async Task OpenFileAsync(string path, IMessageSink messages)

@@ -31,8 +31,30 @@ public static class Program
                 return 0;
         }
 
+        // A second launch hands its folders to the window already open and stops. This
+        // is what makes Fjord usable as the system's file manager: every double-clicked
+        // folder starts a process, and without this each one would be its own window.
+        if (SingleInstance.TryForward(PathsIn(args)))
+        {
+            return 0;
+        }
+
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
+    }
+
+    /// <summary>
+    /// The arguments that are paths, in order.
+    /// </summary>
+    /// <remarks>
+    /// Anything beginning with a dash is a switch, and a switch forwarded to a running
+    /// window would be opened as a folder called "--help".
+    /// </remarks>
+    public static IReadOnlyList<string> PathsIn(IReadOnlyList<string> args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+
+        return [.. args.Where(a => a.Length > 0 && !a.StartsWith('-'))];
     }
 
     // Also used by the Avalonia visual designer; do not rename.

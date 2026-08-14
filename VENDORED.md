@@ -126,3 +126,34 @@ was kept and moved to `src/Fjord.Core/Diagnostics/`.
   its `KeySymbol` handling for punctuation is the reason `:` works on a US layout.
 - `Completion/*`, `ReadlineCommands.cs`, `CommandHistory.cs` — arrive with the command
   line at plan step 10.
+
+## noPDF single-instance forwarding
+
+**Source:** `C:\Users\igor\dev\nopdf`, `src/NoPdf.App/SingleInstance.cs`.
+
+`src/Fjord.App/SingleInstance.cs` is the same idea and the same named-pipe mechanism,
+rewritten rather than copied: a second launch connects to a pipe named for the current
+user, writes its paths, and exits; the first launch serves that pipe on a background
+thread.
+
+noPDF needs it so a second PDF opens as a tab. Fjord needs it for a stronger reason —
+without it Fjord cannot be a file manager at all, because every double-clicked folder
+starts a process and each one would be its own window.
+
+### Changes made during the copy
+
+1. **Typed catches.** The original catches everything, in both the client and the server
+   loop. Here the client catches `TimeoutException`, `IOException` and
+   `UnauthorizedAccessException` — the three ways "nobody is listening" actually arrives —
+   and the server catches the two that a half-open pipe produces. Anything else is a bug
+   and should not be swallowed by the thread that keeps the window reachable.
+
+2. **The escape hatch lives in the class.** noPDF checks `NOPDF_NO_SINGLE_INSTANCE` at the
+   call site in `Program`, which means the server thread starts anyway and the isolated
+   instance still claims the pipe — so the *next* launch forwards into it. `IsDisabled` is
+   checked by both `TryForward` and `Listen`, so an isolated instance neither forwards nor
+   is forwarded to.
+
+3. **Switches are filtered out before forwarding.** `Program.PathsIn` drops anything
+   starting with a dash, so `--config-path` reaching a running window is not opened as a
+   folder by that name.

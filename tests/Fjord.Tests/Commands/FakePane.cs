@@ -15,7 +15,7 @@ namespace Fjord.Tests.Commands;
 /// </remarks>
 public sealed class FakePane : IPane
 {
-    private readonly DirectorySnapshot _snapshot;
+    private DirectorySnapshot _snapshot;
     private int _cursor;
 
     public FakePane(string directory = "/tmp", params string[] names)
@@ -86,7 +86,12 @@ public sealed class FakePane : IPane
     public string? PathAt(int row)
     {
         var view = _snapshot.View;
-        return row >= 0 && row < view.Count ? Path.Combine(Directory, view[row].Name) : null;
+
+        // Rooted the same way the real pane is: a listing whose names are relative
+        // resolves them against where they were gathered from, not against its label.
+        return row >= 0 && row < view.Count
+            ? Path.Combine(_root ?? Directory, view[row].Name)
+            : null;
     }
 
     public Task NavigateAsync(string directory, string? selectName = null)
@@ -115,6 +120,9 @@ public sealed class FakePane : IPane
     /// <summary>Set by a test to stand in for a scrapbook listing.</summary>
     public bool IsVirtual { get; set; }
 
+    // What a rooted listing's relative names resolve against.
+    private string? _root;
+
     /// <summary>The last made-up listing this pane was asked to show.</summary>
     public (string Label,
             IReadOnlyList<string> Paths,
@@ -132,9 +140,33 @@ public sealed class FakePane : IPane
         string? root = null)
     {
         Shown = (label, paths, notes, root);
+        _root = root;
+
+        // A real listing, not just a record of the call: the commands under test go on to
+        // move the cursor over it and ask for the path of a row.
+        _snapshot = new DirectorySnapshot(label);
+        _snapshot.Append(paths.Select(Describe).ToArray());
+        _snapshot.Complete();
+        _cursor = 0;
         IsVirtual = true;
         Directory = label;
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Builds an entry the way the app does, so IsDirectory is right for the row.
+    /// </summary>
+    /// <remarks>
+    /// Enter and goto-folder both read that flag rather than stat the path again, so a
+    /// fake that left it false would make every result look like a file.
+    /// </remarks>
+    private FileEntry Describe(string path)
+    {
+        var full = _root is null ? path : Path.Combine(_root, path);
+
+        return System.IO.Directory.Exists(full)
+            ? new FileEntry(path, -1, 0, EntryFlags.Directory)
+            : new FileEntry(path, 0, 0, EntryFlags.None);
     }
 
     /// <summary>Relabels the pane without navigating, as showing a scrapbook does.</summary>

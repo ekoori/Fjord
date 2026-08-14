@@ -133,4 +133,38 @@ public class FindCommandTests
         Assert.False(ScrapbookCommands.IsScrapbook(results));
         Assert.False(ScrapbookCommands.IsScrapbook(new FakePane("/tmp")));
     }
+
+    [Fact]
+    public async Task EnterOnAResultOpensTheRealFile()
+    {
+        // The names in a search result are relative, so joining them to the pane's
+        // directory — a label like "find:Entry" — produced a path to nothing, and Enter
+        // did nothing at all.
+        using var temp = Tree();
+        var (parser, messages) = Setup();
+        var pane = new FakePane(temp.Path);
+
+        await RunAsync(parser, "find Entry", pane, messages);
+
+        Assert.Equal(
+            Path.Combine(temp.Path, "src", "core", "Entry.cs"),
+            pane.PathAt(pane.CursorIndex));
+    }
+
+    [Fact]
+    public async Task GoingToTheFolderLandsOnTheFileItHolds()
+    {
+        // The usual next thing after finding something: what is around it.
+        using var temp = Tree();
+        var (parser, messages) = Setup();
+        var pane = new FakePane(temp.Path);
+
+        await RunAsync(parser, "find Entry", pane, messages);
+
+        var navigation = new CommandRegistry();
+        navigation.Register(new NavigationCommands());
+        await RunAsync(new CommandParser(navigation), "goto-folder", pane, messages);
+
+        Assert.Contains($"navigate:{Path.Combine(temp.Path, "src", "core")}", pane.Log);
+    }
 }

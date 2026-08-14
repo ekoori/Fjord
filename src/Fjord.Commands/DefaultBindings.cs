@@ -102,6 +102,10 @@ public static class DefaultBindings
                 ["S"] = "scrap-add",
                 ["gs"] = "scrap-open",
 
+                // Where does this thing actually live? The question a search result or a
+                // scrapbook row raises and cannot answer on its own.
+                ["gf"] = "goto-folder",
+
                 // Help
                 ["?"] = "help",
                 ["<F1>"] = "help",

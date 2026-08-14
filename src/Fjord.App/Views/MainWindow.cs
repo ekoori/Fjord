@@ -193,6 +193,11 @@ public sealed class MainWindow : Window, IMessageSink
 
         registry.Register(new ModeCommands(controller));
         registry.Register(new SearchCommands(controller));
+        registry.Register(new DefaultHandlerCommands(
+            Fjord.Platform.FolderHandlers.Create(),
+            controller,
+            LauncherPath,
+            RestartElevated));
 
         _storage = new Fjord.Storage.SqliteStorage(Path.Combine(_paths.Data, "fjord.db"));
         _sessions = new SessionHost(_workspace);
@@ -283,6 +288,7 @@ public sealed class MainWindow : Window, IMessageSink
         // that wanted it has had it, so what is left is genuinely background.
         AddHandler(PointerPressedEvent, OnBackgroundPressed, RoutingStrategies.Bubble);
 
+        _workspace.PaneChanged += (_, _) => UpdateChrome();
         _workspace.Changed += (_, _) =>
         {
             RebuildTabBar();
@@ -375,7 +381,6 @@ public sealed class MainWindow : Window, IMessageSink
                 _list.Focus();
 
                 var pane = _workspace.Initialise();
-                pane.Changed += (_, _) => UpdateChrome();
 
                 // The window is already up and interactive here, so restoring cannot delay
                 // it — which was the whole point of not doing this before Opened.
@@ -529,6 +534,115 @@ public sealed class MainWindow : Window, IMessageSink
         [.. _configService.Settings.Select(s => new CompletionItem(
             s.Name, s.Current is null ? s.Doc : $"= {s.Current}  {s.Doc}"))];
 
+    /// <summary>
+    /// Folders named on the command line, which take precedence over the saved session.
+    /// </summary>
+    /// <remarks>
+    /// Being asked to open something is an instruction; restoring a session is a courtesy.
+    /// Someone who double-clicked a folder wants that folder, not the six tabs they had
+    /// open yesterday — though those still come back behind it.
+    /// </remarks>
+    public IReadOnlyList<string> StartupPaths { get; init; } = [];
+
+    /// <summary>
+    /// Opens paths handed over by a second launch of Fjord.
+    /// </summary>
+    /// <remarks>
+    /// Called from the pipe's own thread, so everything it touches has to be marshalled.
+    /// </remarks>
+    public void OpenFromAnotherLaunch(IReadOnlyList<string> paths) =>
+        Dispatcher.UIThread.Post(() => Observe(OpenPathsAsync(paths, focus: true)));
+
+    /// <summary>
+    /// Opens each path in a tab of its own.
+    /// </summary>
+    /// <param name="focus">
+    /// Whether to bring the window forward. True when another launch asked for this: the
+    /// user clicked something and is waiting to see it, possibly behind other windows.
+    /// </param>
+    /// <remarks>
+    /// A file rather than a folder opens its folder with the file under the cursor, which
+    /// is what "show me this" means for something that is not a place.
+    /// </remarks>
+    private async Task OpenPathsAsync(IReadOnlyList<string> paths, bool focus)
+    {
+        var opened = false;
+
+        foreach (var path in paths)
+        {
+            if (Resolve(path) is not var (directory, select))
+            {
+                continue;
+            }
+
+            // The first one can have the tab that is already here when it is still empty,
+            // which is the ordinary "fjord ." case; anything after it gets its own.
+            if (!opened && _workspace.ActivePane.Directory.Length == 0)
+            {
+                await _workspace.ActivePane.NavigateAsync(directory, select);
+            }
+            else
+            {
+                _workspace.OpenTab(directory, Core.Panes.NewTabPosition.End);
+
+                if (select is not null)
+                {
+                    _workspace.ActivePane.MoveCursorToName(select);
+                }
+            }
+
+            opened = true;
+        }
+
+        if (!opened)
+        {
+            return;
+        }
+
+        if (focus)
+        {
+            // Restoring first: a minimised window that is merely activated stays minimised
+            // and the click looks as though it did nothing.
+            if (WindowState == WindowState.Minimized)
+            {
+                WindowState = WindowState.Normal;
+            }
+
+            Activate();
+        }
+
+        _list.Focus();
+        UpdateChrome();
+    }
+
+    /// <summary>Splits a path into the directory to show and the entry to land on.</summary>
+    private static (string Directory, string? Select)? Resolve(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+
+            if (System.IO.Directory.Exists(full))
+            {
+                return (full, null);
+            }
+
+            if (File.Exists(full) && Path.GetDirectoryName(full) is { Length: > 0 } parent)
+            {
+                return (parent, Path.GetFileName(full));
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                       or NotSupportedException
+                                       or PathTooLongException
+                                       or IOException)
+        {
+            // Whatever was on the command line is not a path this machine can address.
+        }
+
+        return null;
+    }
+
     private async Task RestoreOrOpenAsync(PaneController pane)
     {
         try
@@ -547,6 +661,16 @@ public sealed class MainWindow : Window, IMessageSink
         {
             _message = $"session not restored: {ex.Message}";
             _messageLevel = MessageLevel.Warning;
+        }
+
+        if (StartupPaths.Count > 0)
+        {
+            await OpenPathsAsync(StartupPaths, focus: false);
+
+            if (pane.Directory.Length > 0)
+            {
+                return;
+            }
         }
 
         await pane.NavigateAsync(Environment.CurrentDirectory);
@@ -980,6 +1104,64 @@ public sealed class MainWindow : Window, IMessageSink
         };
 
         return button;
+    }
+
+    /// <summary>
+    /// The path the system should run to start Fjord.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Environment.ProcessPath"/>, not the assembly location. A single-file
+    /// publish extracts its managed assemblies to a temporary directory, so the assembly
+    /// lives somewhere that will not exist next week — registering that as the folder
+    /// handler works until the first reboot clears the extraction and then silently stops.
+    /// </remarks>
+    private static string LauncherPath() =>
+        Environment.ProcessPath ?? Environment.GetCommandLineArgs()[0];
+
+    /// <summary>
+    /// Starts Fjord again with administrator rights and closes this one.
+    /// </summary>
+    /// <returns>False when it did not start, including when the user dismissed the prompt.</returns>
+    /// <remarks>
+    /// A separate process rather than an in-place elevation, because there is no such
+    /// thing: Windows grants privileges at process creation. The session is saved first,
+    /// so the elevated window comes up looking like the one being replaced.
+    /// </remarks>
+    private bool RestartElevated()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            SaveSessionQuietly();
+
+            var started = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = LauncherPath(),
+                UseShellExecute = true,
+
+                // What actually raises the prompt. Without it this is just another copy.
+                Verb = "runas",
+            });
+
+            if (started is null)
+            {
+                return false;
+            }
+
+            Close();
+            return true;
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // Cancelling the UAC prompt arrives here as ERROR_CANCELLED. Declining is an
+            // answer, not a failure, so it is reported the same as any other "no".
+            _log.LogInformation(ex, "elevated restart declined or refused");
+            return false;
+        }
     }
 
     /// <summary>Surfaces a failure from a navigation started by the chrome rather than a command.</summary>

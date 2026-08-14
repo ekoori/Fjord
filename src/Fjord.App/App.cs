@@ -50,7 +50,15 @@ public sealed class App : Application
             // but the file handle should not outlive the app that owns it.
             desktop.Exit += (_, _) => _logging?.Dispose();
 
-            desktop.MainWindow = new MainWindow(paths, initial, new DirectoryLister(), _logging);
+            var window = new MainWindow(paths, initial, new DirectoryLister(), _logging)
+            {
+                StartupPaths = Program.PathsIn(desktop.Args ?? []),
+            };
+
+            // Later launches arrive here rather than starting their own window.
+            SingleInstance.Listen(window.OpenFromAnotherLaunch);
+
+            desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
