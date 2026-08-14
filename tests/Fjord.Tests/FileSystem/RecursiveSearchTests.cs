@@ -86,8 +86,10 @@ public class RecursiveSearchTests
     [Fact]
     public void HiddenEntriesAreLeftOutUnlessAskedFor()
     {
+        // Dotted, because that is what "hidden" means on Unix. Named secret.cs it is an
+        // ordinary file there, and the test passes on Windows and fails in CI.
         using var temp = new TempDirectory();
-        temp.CreateHiddenFile("secret.cs");
+        temp.CreateHiddenFile(".secret.cs");
         temp.CreateFile("plain.cs");
 
         Assert.Equal(["plain.cs"], RecursiveSearch.Find(temp.Path, "cs").Paths);

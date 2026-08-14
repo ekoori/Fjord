@@ -44,12 +44,26 @@ public sealed class TempDirectory : IDisposable
     /// <summary>
     /// Creates a file that both Unix and Windows agree is hidden.
     /// </summary>
+    /// <param name="name">
+    /// Must begin with a dot. Unix has no hidden attribute — the name is the whole
+    /// mechanism — so a name without one produces an ordinary file there while still
+    /// being hidden on Windows, and the test passes on the machine it was written on and
+    /// fails in CI.
+    /// </param>
     /// <remarks>
     /// A leading dot is enough on Unix, and .NET reports it as
     /// <see cref="FileAttributes.Hidden"/>. Windows needs the attribute set explicitly.
     /// </remarks>
     public string CreateHiddenFile(string name)
     {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!name.StartsWith('.'))
+        {
+            throw new ArgumentException(
+                $"'{name}' would not be hidden on Unix; give it a leading dot.", nameof(name));
+        }
+
         var full = CreateFile(name);
 
         if (OperatingSystem.IsWindows())
