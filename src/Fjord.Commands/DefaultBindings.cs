@@ -71,6 +71,11 @@ public static class DefaultBindings
                 // Measuring a tree is the thing you cannot get any other way.
                 ["<Ctrl+d>"] = "directory-sizes",
 
+                // e for "entries move with the mouse". Off by default: with no title bar
+                // the listing is what the window is dragged by, and the two gestures
+                // cannot both be the default.
+                ["<Ctrl+e>"] = "drag-mode",
+
                 // Selection
                 ["<Space>"] = "select-toggle",
                 ["<Ctrl+a>"] = "select-all",

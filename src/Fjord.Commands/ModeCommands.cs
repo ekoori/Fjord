@@ -149,6 +149,21 @@ public sealed class ModeCommands
     public void FrameStats([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages) =>
         messages.Info(_host.ToggleFrameStats() ? "Frame stats on." : "Frame stats off.");
 
+    /// <remarks>
+    /// Reported rather than silent: it changes what a press on the listing means, and a
+    /// mode you cannot see is a trap. The status line shows it for as long as it is on.
+    /// </remarks>
+    [Command("drag-mode", Aliases = ["mouse-mode"], Group = "Listing",
+        Description = "Toggle dragging entries with the mouse")]
+    public void DragMode([CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        messages.Info(_host.ToggleDragMode()
+            ? "Drag mode on: drag entries to move them, with Ctrl to copy. The window no longer drags from the list."
+            : "Drag mode off.");
+    }
+
     [Command("quit", Aliases = ["q"], Group = "Application", Description = "Close Fjord")]
     public void Quit() => _host.Quit();
 }

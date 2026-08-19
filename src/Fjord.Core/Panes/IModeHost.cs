@@ -63,6 +63,16 @@ public interface IModeHost
     /// <summary>Turns the render-time overlay on or off. Returns the new state.</summary>
     bool ToggleFrameStats();
 
+    /// <summary>
+    /// Turns mouse dragging of entries on or off. Returns the new state.
+    /// </summary>
+    /// <remarks>
+    /// A mode rather than always-on, because the window has no title bar: the listing is
+    /// most of what there is to grab, and it is what the user drags to move the window.
+    /// The two gestures are the same gesture, so one of them has to be asked for.
+    /// </remarks>
+    bool ToggleDragMode();
+
     /// <summary>Closes the application.</summary>
     void Quit();
 }

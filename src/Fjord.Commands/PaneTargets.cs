@@ -1,5 +1,6 @@
 using Fjord.Core.Diagnostics;
 using Fjord.Core.Panes;
+using Fjord.Core.Selection;
 
 namespace Fjord.Commands;
 
@@ -41,6 +42,42 @@ public static class PaneTargets
         messages.Error($"Cannot {verb} inside an archive. Yank and paste elsewhere, or :extract.");
         return true;
     }
+
+    /// <summary>
+    /// What an operator should act on, given the range the motion produced.
+    /// </summary>
+    /// <remarks>
+    /// An explicit motion is an explicit instruction: <c>y3j</c> takes three rows whatever
+    /// is marked. But a doubled operator — <c>yy</c>, <c>dd</c>, <c>xx</c> — carries no
+    /// instruction about which rows beyond "here", and in a file manager the answer to that
+    /// is the set the user marked with Space. Without this, marking six files and pressing
+    /// y yanked one of them, and the marks were reachable only through visual mode or
+    /// through the handful of commands that read the selection directly.
+    /// <para>
+    /// Visual mode is left alone: there the range exists before the operator is typed, and
+    /// a one-row visual range is still a deliberate one.
+    /// </para>
+    /// </remarks>
+    public static List<string> InRange(IPane pane, EntryRange range)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+
+        var doubled = pane.VisualRange is null
+            && range.Start == range.End
+            && range.Start == pane.CursorIndex;
+
+        if (doubled && pane.Selection.Count > 0)
+        {
+            return Paths(pane, pane.Selection.Indices());
+        }
+
+        return range.Clamp(pane.Snapshot?.View.Count ?? 0) is { } clamped
+            ? Paths(pane, clamped.Rows())
+            : [];
+    }
+
+    private static List<string> Paths(IPane pane, IEnumerable<int> rows) =>
+        rows.Select(pane.PathAt).Where(p => p is not null).ToList()!;
 
     public static List<string> Of(IPane pane)
     {

@@ -126,9 +126,7 @@ public sealed class OperationCommands
     {
         ArgumentNullException.ThrowIfNull(messages);
 
-        // The Space selection wins when there is one, because copying a path as text is
-        // something you do to a set you have picked out rather than to a span.
-        var paths = pane.Selection.Count > 0 ? PaneTargets.Of(pane) : PathsIn(pane, range);
+        var paths = PathsIn(pane, range);
 
         if (paths.Count == 0)
         {
@@ -329,15 +327,8 @@ public sealed class OperationCommands
     }
 
     /// <summary>Full paths for the rows a range covers.</summary>
-    private static List<string> PathsIn(IPane pane, EntryRange range)
-    {
-        if (range.Clamp(pane.Snapshot?.View.Count ?? 0) is not { } clamped)
-        {
-            return [];
-        }
-
-        return clamped.Rows().Select(pane.PathAt).Where(p => p is not null).ToList()!;
-    }
+    private static List<string> PathsIn(IPane pane, EntryRange range) =>
+        PaneTargets.InRange(pane, range);
 
     /// <summary>
     /// The committed selection, or the cursor row when nothing is selected.

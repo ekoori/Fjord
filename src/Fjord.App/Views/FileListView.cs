@@ -176,6 +176,46 @@ public sealed class FileListView : Control, ILogicalScrollable
         }
     }
 
+    /// <summary>
+    /// The row under a point, or -1 past the last one.
+    /// </summary>
+    /// <remarks>
+    /// O(1), like everything else here: rows are a fixed height, so hit-testing is
+    /// arithmetic rather than a walk. Past the end returns -1 rather than the last row,
+    /// because dropping on empty space below the listing means "here", not "on whatever
+    /// happens to be last".
+    /// </remarks>
+    public int RowAt(Point position)
+    {
+        var row = (int)((position.Y + _offset.Y) / _theme.RowHeight);
+        return row >= 0 && row < _view.Count ? row : -1;
+    }
+
+    /// <summary>
+    /// The row a drop would land on, drawn as a target. -1 for none.
+    /// </summary>
+    /// <remarks>
+    /// Feedback the gesture is otherwise missing: without it a drag over a listing looks
+    /// identical whether it would drop into the folder under the pointer or into the one
+    /// already showing, and those do different things.
+    /// </remarks>
+    public int DropTargetRow
+    {
+        get => _dropTarget;
+        set
+        {
+            if (_dropTarget == value)
+            {
+                return;
+            }
+
+            _dropTarget = value;
+            RequestRedraw();
+        }
+    }
+
+    private int _dropTarget = -1;
+
     /// <summary>Rows that fit in the viewport, for <c>Ctrl-d</c> and page motions.</summary>
     public int PageSize => Math.Max(1, (int)(_viewport.Height / _theme.RowHeight));
 
@@ -491,6 +531,13 @@ public sealed class FileListView : Control, ILogicalScrollable
     /// <summary>Painter's algorithm, later wins: stripe, then selection, then visual, then cursor.</summary>
     private IBrush? BackgroundFor(int row)
     {
+        // Above the cursor, because during a drag the question is where the files land,
+        // not where the keyboard happens to be — and the two are usually different rows.
+        if (row == _dropTarget)
+        {
+            return _theme.VisualBackground;
+        }
+
         if (row == _cursor)
         {
             return _theme.CursorBackground;

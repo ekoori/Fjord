@@ -50,6 +50,7 @@ public sealed class MainWindow : Window, IMessageSink
     private readonly TaskPanel _taskPanel;
     private readonly CommandRegistry _registry;
     private readonly KeyHints _keyHints;
+    private readonly FileDragMode _dragMode;
 
     /// <summary>How far the pointer must travel before a press becomes a drag.</summary>
     /// <remarks>
@@ -288,6 +289,21 @@ public sealed class MainWindow : Window, IMessageSink
         // that wanted it has had it, so what is left is genuinely background.
         AddHandler(PointerPressedEvent, OnBackgroundPressed, RoutingStrategies.Bubble);
 
+        _dragMode = new FileDragMode(
+            _list,
+            () => _workspace.Tabs.Count == 0 ? null : _workspace.ActivePane,
+            DropFiles,
+            () => _input.Execute("enter"));
+
+        _input.DragModeToggled += (_, _) =>
+        {
+            _dragMode.IsEnabled = !_dragMode.IsEnabled;
+            UpdateChrome();
+        };
+
+        _input.DragModeEnabled = () => _dragMode.IsEnabled;
+
+        WatchTaskbarPresence();
         _workspace.PaneChanged += (_, _) => UpdateChrome();
         _workspace.Changed += (_, _) =>
         {
@@ -645,6 +661,8 @@ public sealed class MainWindow : Window, IMessageSink
 
     private async Task RestoreOrOpenAsync(PaneController pane)
     {
+        var restored = false;
+
         try
         {
             // Marks before tabs: they are what the restored window navigates by, and they
@@ -654,7 +672,7 @@ public sealed class MainWindow : Window, IMessageSink
             if (_storage.LoadSession(Core.Storage.SavedSession.DefaultName) is { Tabs.Count: > 0 } session)
             {
                 await _sessions.RestoreAsync(session);
-                return;
+                restored = true;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException)
@@ -663,14 +681,23 @@ public sealed class MainWindow : Window, IMessageSink
             _messageLevel = MessageLevel.Warning;
         }
 
+        // After the restore, never instead of it. Returning early here is what made a
+        // folder opened from Explorer vanish on a cold start: almost every launch has a
+        // session to restore, so the path was never looked at — and the same click into an
+        // already-running Fjord worked, because that arrives down the pipe instead.
         if (StartupPaths.Count > 0)
         {
             await OpenPathsAsync(StartupPaths, focus: false);
 
-            if (pane.Directory.Length > 0)
+            if (_workspace.ActivePane.Directory.Length > 0)
             {
                 return;
             }
+        }
+
+        if (restored)
+        {
+            return;
         }
 
         await pane.NavigateAsync(Environment.CurrentDirectory);
@@ -1107,6 +1134,53 @@ public sealed class MainWindow : Window, IMessageSink
     }
 
     /// <summary>
+    /// Performs a drop: the same queued, undoable copy or move a paste would.
+    /// </summary>
+    /// <remarks>
+    /// Through the operation host rather than straight to disk, so a drag that lands on a
+    /// thousand files reports progress, can be cancelled, and comes back with <c>u</c> —
+    /// which is the whole reason file operations go through one place.
+    /// </remarks>
+    private void DropFiles(IReadOnlyList<string> sources, string destination, bool copy)
+    {
+        var factory = new FileOperationFactory();
+
+        _operations.Enqueue(copy
+            ? factory.Copy(sources, destination)
+            : factory.Move(sources, destination));
+    }
+
+    /// <summary>
+    /// Records what the window thinks it is, whenever that changes.
+    /// </summary>
+    /// <remarks>
+    /// For a report of the taskbar button going missing that nobody has a pattern for yet.
+    /// Minimising, maximising, restoring, repeated launches forwarding in, and the
+    /// maximised rect were all measured and all behave exactly as an ordinary decorated
+    /// window does — so if it happens again the useful question is whether Fjord still
+    /// believes it belongs in the taskbar at that moment, or whether the shell dropped a
+    /// window that was still asking to be there. This answers the first half; without it
+    /// the next report is as unfalsifiable as this one.
+    /// </remarks>
+    private void WatchTaskbarPresence()
+    {
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property != WindowStateProperty && e.Property != ShowInTaskbarProperty)
+            {
+                return;
+            }
+
+            _log.LogInformation(
+                "window {State}, in taskbar {ShowInTaskbar}, visible {Visible}, icon {Icon}",
+                WindowState,
+                ShowInTaskbar,
+                IsVisible,
+                Icon is null ? "none" : "set");
+        };
+    }
+
+    /// <summary>
     /// The path the system should run to start Fjord.
     /// </summary>
     /// <remarks>
@@ -1476,7 +1550,12 @@ public sealed class MainWindow : Window, IMessageSink
         // half-typed "g" or an armed operator has to be visible or the app feels stuck.
         var mode = _input.Modes.Mode;
         var modeText = mode == KeyMode.Normal ? string.Empty : $"-- {mode.Name.ToUpperInvariant()} -- ";
-        _keys.Text = modeText + _input.Modes.PendingKeys;
+
+        // Drag mode changes what a press on the listing does, so it is shown for as long as
+        // it is on. Before the key modes rather than after, because it is the more
+        // surprising of the two states to be in without having noticed.
+        var dragText = _dragMode.IsEnabled ? "-- DRAG -- " : string.Empty;
+        _keys.Text = dragText + modeText + _input.Modes.PendingKeys;
         UpdateKeyHints();
 
         var snapshot = pane.Snapshot;

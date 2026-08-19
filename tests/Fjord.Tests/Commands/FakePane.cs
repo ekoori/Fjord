@@ -266,6 +266,16 @@ public sealed class FakeModeHost : IModeHost
 
     public Fjord.Core.Navigation.MarkFile Marks { get; } = new();
 
+    /// <summary>Whether drag mode is on, flipped by the command under test.</summary>
+    public bool DragMode { get; private set; }
+
+    public bool ToggleDragMode()
+    {
+        DragMode = !DragMode;
+        Actions.Add($"drag-mode:{(DragMode ? "on" : "off")}");
+        return DragMode;
+    }
+
     public bool ToggleFrameStats()
     {
         Actions.Add("toggle-frame-stats");

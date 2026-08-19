@@ -301,6 +301,19 @@ public sealed class InputController : IModeHost
     /// <summary>Raised when a command asked to toggle the frame-stats overlay.</summary>
     public event EventHandler? FrameStatsToggled;
 
+    /// <summary>Toggles mouse dragging of entries. The window supplies the handler.</summary>
+    public bool ToggleDragMode()
+    {
+        DragModeToggled?.Invoke(this, EventArgs.Empty);
+        return DragModeEnabled?.Invoke() ?? false;
+    }
+
+    /// <summary>Raised when a command asked to toggle drag mode.</summary>
+    public event EventHandler? DragModeToggled;
+
+    /// <summary>Reports whether dragging entries is currently on.</summary>
+    public Func<bool>? DragModeEnabled { get; set; }
+
     /// <summary>Reports whether the overlay is currently on.</summary>
     public Func<bool>? FrameStatsEnabled { get; set; }
 

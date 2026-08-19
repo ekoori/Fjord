@@ -25,6 +25,10 @@ zip, recursive folder sizes, and the help page. Regenerate with
 - **File operations.** Copy, move, rename, duplicate, trash, mkdir, touch — queued,
   cancellable, with progress, and **undoable** with `u`.
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
+- **A mouse, when you want one.** `Ctrl-e` turns on drag mode: drag entries onto a folder
+  to move them, hold `Ctrl` to copy, drag them out into another application, or drop files
+  in from one. Off by default, because with no title bar the listing is what you grab to
+  move the window.
 - **Open with.** `O` hands the file to the system's own chooser — the one that can also
   change which application owns the type from then on.
 - **Tabs** with `L`/`H`, and history with `Ctrl-h`/`Ctrl-l`.
@@ -116,7 +120,7 @@ out of date.
 | `l` `Enter` | open — a directory, or a file in its default application |
 | `o` `O` | open with the default application / with one you pick |
 | `h` `Backspace` | parent directory — or the drive list, at the top of one |
-| `Space` | select, and advance |
+| `Space` | select, and advance — `y`, `x` and `d` then act on the marked set |
 | `v` | visual mode |
 | `y` `x` | yank / cut — operators, so `y2j` takes three rows |
 | `p` | paste |
@@ -125,6 +129,7 @@ out of date.
 | `u` `Ctrl-r` | undo / redo |
 | `/` `Ctrl-/` | search — narrows the listing / puts it back |
 | `Ctrl-d` | measure every folder here, recursively |
+| `Ctrl-e` | drag mode: move entries with the mouse, `Ctrl` to copy |
 | `:find` | search this directory and everything under it |
 | `gf` | go to the folder holding the entry under the cursor |
 | `S` `gs` | add to scrapbook / open it |

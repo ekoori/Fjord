@@ -131,6 +131,65 @@ public class OperationCommandTests
     }
 
     [Fact]
+    public void YankingTakesTheMarkedSetWhenThereIsOne()
+    {
+        // Space-marking files and then pressing y is how a file manager is used, and yy
+        // carries no instruction about which rows beyond "here". Before this, marking six
+        // files and yanking took one of them.
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[1] = true;
+        pane.Selection[3] = true;
+
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(0, 0)));
+
+        Assert.Equal(
+            [Path.Combine("/tmp", "b.txt"), Path.Combine("/tmp", "d.txt")],
+            host.Clipboard.Paths);
+    }
+
+    [Fact]
+    public void AMotionStillSaysWhichRowsToYank()
+    {
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[3] = true;
+
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(0, 1)));
+
+        Assert.Equal(
+            [Path.Combine("/tmp", "a.txt"), Path.Combine("/tmp", "b.txt")],
+            host.Clipboard.Paths);
+    }
+
+    [Fact]
+    public void WithNothingMarkedYankStillTakesTheRowUnderTheCursor()
+    {
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.CursorIndex = 2;
+
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(2, 2)));
+
+        Assert.Equal([Path.Combine("/tmp", "c.txt")], host.Clipboard.Paths);
+    }
+
+    [Fact]
+    public void AVisualRangeOfOneRowIsStillDeliberate()
+    {
+        // v then y over a single row means that row, even with marks lying around: in
+        // visual mode the range existed before the operator was typed.
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[3] = true;
+        pane.VisualAnchor = 0;
+
+        parser.Execute("yank-paths", Context(pane, range: new EntryRange(0, 0)));
+
+        Assert.Equal([Path.Combine("/tmp", "a.txt")], host.Clipboard.Paths);
+    }
+
+    [Fact]
     public void CutFillsTheClipboardForMoving()
     {
         var (parser, host) = Setup();
@@ -543,14 +602,30 @@ public class OperationCommandTests
     [Fact]
     public void YankTextPrefersTheSpaceSelection()
     {
-        // Copying paths as text is something you do to a set you picked out, so a selection
-        // wins over the span a motion covered.
+        // Copying paths as text is something you do to a set you picked out, so YY on a
+        // marked set takes the marks rather than the row under the cursor.
+        var (parser, host) = Setup();
+        var pane = Pane();
+        pane.Selection[3] = true;
+
+        parser.Execute("yank-text", Context(pane, range: new EntryRange(0, 0)));
+
+        Assert.Equal(Path.Combine("/tmp", "d.txt"), host.ClipboardText);
+    }
+
+    [Fact]
+    public void AMotionSaysWhichRowsAndBeatsTheMarks()
+    {
+        // Y2j names its rows. Letting marks made earlier override that would make the
+        // motion a lie, and it is the only way to act on a span while marks exist.
         var (parser, host) = Setup();
         var pane = Pane();
         pane.Selection[3] = true;
 
         parser.Execute("yank-text", Context(pane, range: new EntryRange(0, 1)));
 
-        Assert.Equal(Path.Combine("/tmp", "d.txt"), host.ClipboardText);
+        Assert.Equal(
+            string.Join(Environment.NewLine, Path.Combine("/tmp", "a.txt"), Path.Combine("/tmp", "b.txt")),
+            host.ClipboardText);
     }
 }
