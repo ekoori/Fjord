@@ -15,7 +15,7 @@ zip, recursive folder sizes, and the help page. Regenerate with
 
 > **Status: early but complete for v1.** Everything on the original v1 list is built.
 > Previews, an embedded terminal, git integration and plugins are not. The first
-> packaged build is [v0.1.0-beta.1](https://github.com/ekoori/Fjord/releases/latest).
+> packaged build is [v0.1.0-beta.2](https://github.com/ekoori/Fjord/releases/tag/v0.1.0-beta.2).
 
 ## What works
 
@@ -59,7 +59,7 @@ zip, recursive folder sizes, and the help page. Regenerate with
 
 ## Installing
 
-Grab an archive from [the latest release](https://github.com/ekoori/Fjord/releases/latest).
+Grab an archive from [the releases page](https://github.com/ekoori/Fjord/releases).
 One self-contained executable per platform. No runtime to install, nothing to unpack, no
 installer — download, extract, run. About 50 MB, because the .NET runtime and the whole
 rendering stack are inside it.
