@@ -1,4 +1,5 @@
 using System.Text;
+using Fjord.Core.Diagnostics;
 using Fjord.Core.Input;
 
 namespace Fjord.Commands;
@@ -29,7 +30,9 @@ public static class HelpText
         var keys = InvertBindings(bindings, modes);
         var output = new StringBuilder();
 
-        output.AppendLine("Fjord — commands and keys");
+        output.Append("Fjord ").Append(BuildInfo.Version).AppendLine(" — commands and keys");
+        output.AppendLine();
+        output.AppendLine($"  {BuildInfo.Runtime}");
         output.AppendLine();
         output.AppendLine("  :help <command>   detail for one command");
         output.AppendLine("  :config           open the configuration file");

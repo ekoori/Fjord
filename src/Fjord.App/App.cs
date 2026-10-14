@@ -1,4 +1,3 @@
-using System.Reflection;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Themes.Fluent;
@@ -90,13 +89,9 @@ public sealed class App : Application
 
     private static void LogStartup(ILogger log, FjordPaths paths, ConfigLoadResult initial)
     {
-        var version = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? "unknown";
-
         log.LogInformation(
             "Fjord {Version} starting on {Platform}, .NET {Runtime}",
-            version,
+            Fjord.Core.Diagnostics.BuildInfo.FullVersion,
             Environment.OSVersion.VersionString,
             Environment.Version);
 

@@ -13,9 +13,11 @@ progress bars, a trash that works, and a window that behaves like the rest of th
 zip, recursive folder sizes, and the help page. Regenerate with
 `scripts/capture-screenshots.ps1` and `scripts/make-gif.py`.*
 
-> **Status: early but complete for v1.** Everything on the original v1 list is built.
-> Previews, an embedded terminal, git integration and plugins are not. The first
-> packaged build is [v0.1.0-beta.3](https://github.com/ekoori/Fjord/releases/tag/v0.1.0-beta.3).
+> **Status: v1, after three betas.** Everything on the original v1 list is built, and
+> [v0.1.0](https://github.com/ekoori/Fjord/releases/latest) is the first release not
+> marked as a preview. Previews, an embedded terminal, git integration and plugins are
+> not in it; macOS builds but has never been run — see
+> [Platform support](#platform-support).
 
 ## What works
 
@@ -53,6 +55,8 @@ zip, recursive folder sizes, and the help page. Regenerate with
 - **Sessions.** Tabs, directories, cursor and selection come back when you reopen.
 - **Scrapbooks.** Collect entries from anywhere into a virtual list and act on them together.
 - **Live configuration.** Edit the YAML, save, and your keys rebind without a restart.
+- **`:version`** says which build you are running, with the runtime and platform — the
+  line to paste into a bug report. `Fjord --version` prints the same from a terminal.
 - **Folder sizes on demand.** `Ctrl-d` walks every folder in the listing and fills in
   the size column as each one finishes.
 - **Roots.** `:roots` lists the drives with their labels, free space and filesystem, as
@@ -61,7 +65,7 @@ zip, recursive folder sizes, and the help page. Regenerate with
 
 ## Installing
 
-Grab an archive from [the releases page](https://github.com/ekoori/Fjord/releases).
+Grab an archive from [the latest release](https://github.com/ekoori/Fjord/releases/latest).
 One self-contained executable per platform. No runtime to install, nothing to unpack, no
 installer — download, extract, run. About 50 MB, because the .NET runtime and the whole
 rendering stack are inside it.
@@ -144,7 +148,7 @@ out of date.
 | `Ctrl-Shift-h` `Ctrl-Shift-l` | move this tab left / right |
 | `Ctrl-h` `Ctrl-l` | back / forward |
 | `Ctrl-F2` | name this tab |
-| `?` | help |
+| `?` | help — says which build this is |
 | `:` | command line |
 
 Nothing is bound to permanent deletion. `:delete!` is the only route, and it cannot be

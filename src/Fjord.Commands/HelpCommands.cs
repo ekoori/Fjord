@@ -31,6 +31,21 @@ public sealed class HelpCommands
         _platform = platform;
     }
 
+    /// <remarks>
+    /// One line, because it is read out into a bug report rather than studied. The runtime
+    /// and the platform come with it: "it crashes" is a different problem on Windows and
+    /// on a Linux container, and asking afterwards costs a round trip.
+    /// </remarks>
+    [Command("version", Aliases = ["about"], Group = "Help",
+        Description = "Show which build this is")]
+    public void Version(
+        [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        messages.Info(BuildInfo.Summary);
+    }
+
     [Command("help", Aliases = ["h"], Group = "Help", MaxSplit = 0,
         Description = "Show the command list, or detail for one command")]
     public void Help(

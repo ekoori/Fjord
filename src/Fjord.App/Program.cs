@@ -25,6 +25,11 @@ public static class Program
                 UseParentConsole();
                 return WriteDefaultConfig(path);
 
+            case ["--version", ..] or ["-v", ..]:
+                UseParentConsole();
+                Console.WriteLine(Fjord.Core.Diagnostics.BuildInfo.Summary);
+                return 0;
+
             case ["--config-path", ..]:
                 UseParentConsole();
                 Console.WriteLine(FjordPaths.Default.ConfigFile);
