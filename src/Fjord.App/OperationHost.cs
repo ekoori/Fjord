@@ -71,6 +71,21 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
     /// <summary>Raised after work that may have altered the current directory.</summary>
     public event EventHandler? Settled;
 
+    /// <summary>Raised on the UI thread when an operation ended in failure.</summary>
+    public event EventHandler<(string Operation, string Reason)>? Failed;
+
+    /// <summary>
+    /// What to tell the user about a failure.
+    /// </summary>
+    /// <remarks>
+    /// The base exception, because the interesting one is at the bottom: an aggregate or a
+    /// wrapper names the machinery rather than the file. Windows does not say which process
+    /// holds the handle in the message, so "in use by another program" is as far as this
+    /// can honestly go without asking the OS a much harder question.
+    /// </remarks>
+    private static string Explain(Exception? error) =>
+        error?.GetBaseException() is { } cause ? cause.Message : "no reason given";
+
     public Fjord.Core.Registers.RegisterFile Registers { get; } = new();
 
     /// <summary>
@@ -183,6 +198,13 @@ public sealed class OperationHost : IOperationHost, IAsyncDisposable
 
             case OperationState.Failed:
                 _log.LogError(handle.Error, "failed {Operation}", handle.Operation.Description);
+
+                // Said out loud, not only written to the log. A trash that could not touch
+                // a file because something has it open finished as far as the queue is
+                // concerned: the task panel empties, the entry is still there, and without
+                // this the only evidence that anything went wrong is a file that did not
+                // move.
+                Failed?.Invoke(this, (handle.Operation.Description, Explain(handle.Error)));
                 break;
 
             default:

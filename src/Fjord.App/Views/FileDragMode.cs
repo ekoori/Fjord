@@ -37,6 +37,11 @@ internal sealed class FileDragMode
     private readonly Func<IPane?> _pane;
     private readonly Action<IReadOnlyList<string>, string, bool> _drop;
     private readonly Action _open;
+    private readonly Action<string, IReadOnlyList<string>> _run;
+    private readonly Action _changed;
+
+    // Where a shift-click measures from: the last row clicked without shift.
+    private int _anchor;
 
     private PointerPressedEventArgs? _pressed;
     private Point _origin;
@@ -45,16 +50,26 @@ internal sealed class FileDragMode
 
     /// <param name="drop">Sources, destination directory, and whether to copy rather than move.</param>
     /// <param name="open">What a double click means: the same as Enter.</param>
+    /// <param name="run">A program and the paths dropped on it, to run after confirming.</param>
+    /// <param name="changed">
+    /// Called when a click moved the cursor or changed the selection. The mouse writes
+    /// straight to the view rather than running a command, so nothing else tells the status
+    /// bar — without this it kept showing the position and count from the last keystroke.
+    /// </param>
     public FileDragMode(
         FileListView list,
         Func<IPane?> pane,
         Action<IReadOnlyList<string>, string, bool> drop,
-        Action open)
+        Action open,
+        Action<string, IReadOnlyList<string>> run,
+        Action changed)
     {
         _list = list;
         _pane = pane;
         _drop = drop;
         _open = open;
+        _run = run;
+        _changed = changed;
 
         _list.PointerPressed += OnPressed;
         _list.PointerMoved += OnMoved;
@@ -111,6 +126,33 @@ internal sealed class FileDragMode
             return;
         }
 
+        // Ctrl adds one, Shift takes everything back to the last plain click. The same two
+        // modifiers every list in every desktop uses, and with Space no longer advancing
+        // they are the quick way to build a set with the mouse.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _list.Selection.Toggle(row);
+            _list.CursorIndex = row;
+            _anchor = row;
+            _list.RequestRedraw();
+            _changed();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            // Replaced rather than added to: shift-click means "this span", and a second
+            // one adjusts the span rather than accumulating the two.
+            _list.Selection.Clear();
+            _list.Selection.SetRange(Math.Min(_anchor, row), Math.Max(_anchor, row), true);
+            _list.CursorIndex = row;
+            _list.RequestRedraw();
+            _changed();
+            e.Handled = true;
+            return;
+        }
+
         // Pressing outside the marked set moves the cursor and drags that one row; pressing
         // inside it drags the whole set. What every file manager does, and the only reading
         // that lets a marked group be dragged at all.
@@ -118,6 +160,8 @@ internal sealed class FileDragMode
         {
             _list.CursorIndex = row;
         }
+
+        _anchor = row;
 
         // A press on a row is also a click on the list, and the keyboard should follow it:
         // otherwise clicking a row while the command line is open leaves the next keystroke
@@ -127,6 +171,7 @@ internal sealed class FileDragMode
         _pressed = e;
         _origin = e.GetPosition(_list);
         _dragging = false;
+        _changed();
 
         // Marks the press as ours so the window does not also start moving itself.
         e.Handled = true;
@@ -190,11 +235,18 @@ internal sealed class FileDragMode
 
         try
         {
-            // Both effects offered so the other end can choose — Explorer picks move or copy
-            // from the modifier held when the button comes up, and performs whichever it
-            // chose. The result is ignored on purpose: acting on it here would repeat a move
-            // that has already happened.
-            await DragDrop.DoDragDropAsync(pressed, transfer, DragDropEffects.Move | DragDropEffects.Copy)
+            // Every effect the drop might turn out to be, because the source is what
+            // decides the permitted set: a target offering one the source left out has its
+            // drop refused, which is silent. Link is in the list for dropping onto a
+            // program, where the result is neither a copy nor a move.
+            //
+            // Explorer picks move or copy from the modifier held when the button comes up
+            // and performs whichever it chose. The result is ignored on purpose: acting on
+            // it here would repeat a move that has already happened.
+            await DragDrop.DoDragDropAsync(
+                pressed,
+                transfer,
+                DragDropEffects.Move | DragDropEffects.Copy | DragDropEffects.Link)
                 .ConfigureAwait(true);
         }
         catch (InvalidOperationException)
@@ -257,6 +309,16 @@ internal sealed class FileDragMode
             return;
         }
 
+        // A program is a target too, and shown as one, but the effect is neither copy nor
+        // move: Link is the nearest thing the shell has to "this will be handed over".
+        if (ProgramUnderPointer(e) is not null)
+        {
+            e.DragEffects = DragDropEffects.Link;
+            _list.DropTargetRow = _list.RowAt(e.GetPosition(_list));
+            e.Handled = true;
+            return;
+        }
+
         e.DragEffects = IsCopy(e) ? DragDropEffects.Copy : DragDropEffects.Move;
         _list.DropTargetRow = TargetRow(e);
         e.Handled = true;
@@ -284,6 +346,17 @@ internal sealed class FileDragMode
                 Path.GetDirectoryName(p), destination, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        if (sources.Count > 0 && ProgramUnderPointer(e) is { } program)
+        {
+            // Dropping files on a program runs it with them, which is what the gesture has
+            // meant since shells learned to do it. Confirmed first: the same movement that
+            // would have filed something away instead starts a program, and that is not a
+            // thing to discover afterwards.
+            _run(program, sources!);
+            e.Handled = true;
+            return;
+        }
+
         if (moving.Count == 0)
         {
             return;
@@ -291,6 +364,61 @@ internal sealed class FileDragMode
 
         _drop(moving!, destination, IsCopy(e));
         e.Handled = true;
+    }
+
+    /// <summary>Extensions Windows treats as something to run rather than to open.</summary>
+    /// <remarks>
+    /// A list rather than the executable bit, because Windows has no such bit: what makes a
+    /// file runnable there is its extension. On Unix the bit is the answer and is checked
+    /// instead.
+    /// </remarks>
+    private static readonly string[] Runnable = [".exe", ".com", ".bat", ".cmd", ".ps1"];
+
+    /// <summary>The program a drop would run, or null when the row is not one.</summary>
+    private string? ProgramUnderPointer(DragEventArgs e)
+    {
+        if (_pane() is not { } pane)
+        {
+            return null;
+        }
+
+        var row = _list.RowAt(e.GetPosition(_list));
+        var view = pane.Snapshot?.View ?? default;
+
+        if (row < 0 || row >= view.Count || view[row].IsDirectory)
+        {
+            return null;
+        }
+
+        if (pane.PathAt(row) is not { } path)
+        {
+            return null;
+        }
+
+        return IsRunnable(path) ? path : null;
+    }
+
+    private static bool IsRunnable(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return Runnable.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
+        }
+
+        try
+        {
+            // Unix: the executable bit, for the owner or for everyone. A script without it
+            // is a text file, and treating it as a program would run something the system
+            // itself would refuse to.
+            return File.Exists(path)
+                && (File.GetUnixFileMode(path)
+                    & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or PlatformNotSupportedException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Ctrl copies, as it does in every file manager; without it the drop moves.</summary>

@@ -27,8 +27,10 @@ zip, recursive folder sizes, and the help page. Regenerate with
 - **A real trash.** The Recycle Bin on Windows, the freedesktop spec on Linux.
 - **A mouse, when you want one.** `Ctrl-e` turns on drag mode: drag entries onto a folder
   to move them, hold `Ctrl` to copy, drag them out into another application, or drop files
-  in from one. Off by default, because with no title bar the listing is what you grab to
-  move the window.
+  in from one. `Ctrl`-click picks entries out, `Shift`-click takes a span, and dropping
+  files onto a program runs it with them after asking. Off by default, because with no
+  title bar the listing is what you grab to move the window. The mouse's own back and
+  forward buttons move through history whatever the mode.
 - **Open with.** `O` hands the file to the system's own chooser — the one that can also
   change which application owns the type from then on.
 - **Tabs** with `L`/`H`, and history with `Ctrl-h`/`Ctrl-l`.
@@ -116,11 +118,11 @@ out of date.
 | | |
 |---|---|
 | `j` `k` | move down / up |
-| `gg` `G` | first / last entry |
+| `gg` `G` | first / last entry — with folders first, the top or bottom of the half you are in, then of everything |
 | `l` `Enter` | open — a directory, or a file in its default application |
-| `o` `O` | open with the default application / with one you pick |
+| `o` `O` | open with the default application / with one you pick — on a folder, `O` opens it in the system file manager |
 | `h` `Backspace` | parent directory — or the drive list, at the top of one |
-| `Space` | select, and advance — `y`, `x` and `d` then act on the marked set |
+| `Space` | mark, staying put — `y`, `x` and `d` then act on the marked set |
 | `v` | visual mode |
 | `y` `x` | yank / cut — operators, so `y2j` takes three rows |
 | `p` | paste |

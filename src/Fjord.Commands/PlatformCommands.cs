@@ -36,13 +36,22 @@ public sealed class PlatformCommands
     /// Separate from <c>open-with-default</c> rather than a flag on it, so a binding can
     /// reach either one directly: the whole point of asking is that you did not want the
     /// default this time.
+    /// <para>
+    /// On a folder it opens the system file manager instead. "Open with" on a folder is a
+    /// dialog listing programs that cannot open one, and what someone pressing it on a
+    /// folder wants is that folder in Explorer or Finder — the one thing Fjord, having
+    /// possibly taken the association over, is no longer the way to get.
+    /// </para>
     /// </remarks>
     [Command("open-with", Group = "Platform",
-        Description = "Open the entry under the cursor with an application you choose")]
+        Description = "Open the entry under the cursor with an application you choose, or a folder in the system file manager")]
     public async Task OpenWith(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Messages)] IMessageSink messages)
     {
+        ArgumentNullException.ThrowIfNull(pane);
+        ArgumentNullException.ThrowIfNull(messages);
+
         if (pane.PathAt(pane.CursorIndex) is not { } path)
         {
             return;
@@ -50,6 +59,16 @@ public sealed class PlatformCommands
 
         try
         {
+            if (IsDirectory(pane))
+            {
+                if (!await _platform.OpenInFileManagerAsync(path).ConfigureAwait(true))
+                {
+                    messages.Error("No system file manager to open this folder with.");
+                }
+
+                return;
+            }
+
             if (!await _platform.OpenWithAsync(path).ConfigureAwait(true))
             {
                 messages.Error("This system offers no \"open with\" dialog.");
@@ -105,6 +124,13 @@ public sealed class PlatformCommands
         {
             messages.Warning("No roots found.");
         }
+    }
+
+    /// <summary>Whether the row under the cursor is a folder, as the listing already knows.</summary>
+    private static bool IsDirectory(IPane pane)
+    {
+        var view = pane.Snapshot?.View ?? default;
+        return pane.CursorIndex >= 0 && pane.CursorIndex < view.Count && view[pane.CursorIndex].IsDirectory;
     }
 
     /// <summary>

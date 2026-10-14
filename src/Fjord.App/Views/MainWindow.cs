@@ -293,7 +293,9 @@ public sealed class MainWindow : Window, IMessageSink
             _list,
             () => _workspace.Tabs.Count == 0 ? null : _workspace.ActivePane,
             DropFiles,
-            () => _input.Execute("enter"));
+            () => _input.Execute("enter"),
+            RunWithDroppedFiles,
+            UpdateChrome);
 
         _input.DragModeToggled += (_, _) =>
         {
@@ -352,6 +354,8 @@ public sealed class MainWindow : Window, IMessageSink
         };
 
         _operations.Changed += (_, _) => _taskPanel.Update(_operations.Active);
+        _operations.Failed += (_, failure) =>
+            ((IMessageSink)this).Error($"{failure.Operation}: {failure.Reason}");
 
         // Filesystem watching is not in M1, so the listing has to be told when an
         // operation finished changing it. Once per operation, not per item.
@@ -374,6 +378,7 @@ public sealed class MainWindow : Window, IMessageSink
         }
 
         Closing += (_, _) => SaveSessionQuietly();
+        SaveSessionPeriodically();
 
         Closed += async (_, _) =>
         {
@@ -703,13 +708,78 @@ public sealed class MainWindow : Window, IMessageSink
         await pane.NavigateAsync(Environment.CurrentDirectory);
     }
 
-    /// <summary>Saves the session on the way out, without letting a failure block closing.</summary>
+    /// <summary>
+    /// A cheap stand-in for "has anything worth saving changed".
+    /// </summary>
+    /// <remarks>
+    /// Compared rather than the records themselves: <see cref="Core.Storage.SavedTab"/>
+    /// holds a list, and record equality on a list is by reference, so two captures of an
+    /// unchanged window never compare equal and the timer would write every thirty seconds
+    /// forever.
+    /// </remarks>
+    private static string Describe(Core.Storage.SavedSession session) =>
+        session.ActiveTab + "|" + string.Join(
+            "|",
+            session.Tabs.Select(t => string.Join(
+                ",",
+                t.Directory,
+                t.CursorName,
+                t.Name,
+                t.IsLocked,
+                t.Sort,
+                t.Filter,
+                t.Selection.Count)));
+
+    /// <summary>
+    /// How often the session is written while the window is open.
+    /// </summary>
+    /// <remarks>
+    /// Saving only on the way out means a crash, a power cut or a kill loses everything
+    /// since the window opened — which for a file manager is the tabs and the sort orders
+    /// someone spent the afternoon arranging. Thirty seconds is short enough that the loss
+    /// is an inconvenience and long enough that it is not a write loop.
+    /// </remarks>
+    private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
+
+    // What was last written, so an idle window stops writing. Capture is cheap but the
+    // database is on disk, and a window left open all day should not keep touching it.
+    private string _savedSignature = string.Empty;
+
+    private void SaveSessionPeriodically()
+    {
+        var timer = new DispatcherTimer { Interval = SaveInterval };
+
+        timer.Tick += (_, _) =>
+        {
+            if (_workspace.Tabs.Count > 0)
+            {
+                SaveSessionQuietly();
+            }
+        };
+
+        timer.Start();
+
+        // Stopped explicitly: a timer rooted by the dispatcher keeps firing against a
+        // window that is closing, and the save on the way out has already run by then.
+        Closing += (_, _) => timer.Stop();
+    }
+
+    /// <summary>Saves the session, without letting a failure block anything.</summary>
     private void SaveSessionQuietly()
     {
         try
         {
-            _storage.SaveSession(_sessions.Capture(Core.Storage.SavedSession.DefaultName));
+            var session = _sessions.Capture(Core.Storage.SavedSession.DefaultName);
+            var signature = Describe(session);
+
+            if (signature == _savedSignature)
+            {
+                return;
+            }
+
+            _storage.SaveSession(session);
             _storage.SaveMarks(_marks.All);
+            _savedSignature = signature;
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException)
         {
@@ -981,7 +1051,24 @@ public sealed class MainWindow : Window, IMessageSink
     /// </remarks>
     private void OnBackgroundPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.Handled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (e.Handled)
+        {
+            return;
+        }
+
+        var properties = e.GetCurrentPoint(this).Properties;
+
+        // The side buttons on a mouse. They are already bound as keys, but a mouse does not
+        // send keys — these arrive as pointer buttons and were reaching nothing at all, so
+        // the one place a file manager genuinely wants them did nothing.
+        if (properties.IsXButton1Pressed || properties.IsXButton2Pressed)
+        {
+            _input.Execute(properties.IsXButton1Pressed ? "back" : "forward");
+            e.Handled = true;
+            return;
+        }
+
+        if (!properties.IsLeftButtonPressed)
         {
             return;
         }
@@ -1131,6 +1218,46 @@ public sealed class MainWindow : Window, IMessageSink
         };
 
         return button;
+    }
+
+    /// <summary>
+    /// Runs a program with the files dropped on it, once the user says so.
+    /// </summary>
+    /// <remarks>
+    /// Asked first, and this is the one drop that cannot be undone: a copy or a move leaves
+    /// something to reverse, and a program that has started has done whatever it does. The
+    /// question names the program and the count rather than the whole command line, which
+    /// for forty files would not fit in a status bar.
+    /// </remarks>
+    private void RunWithDroppedFiles(string program, IReadOnlyList<string> files)
+    {
+        var name = Path.GetFileName(program);
+        var what = files.Count == 1 ? Path.GetFileName(files[0]) : $"{files.Count} items";
+
+        _input.Ask($"Run {name} with {what}?", () => Observe(StartAsync(program, files)));
+
+        async Task StartAsync(string executable, IReadOnlyList<string> arguments)
+        {
+            try
+            {
+                if (await Fjord.Platform.PlatformServices.Create()
+                        .RunWithArgumentsAsync(executable, arguments).ConfigureAwait(true))
+                {
+                    ((IMessageSink)this).Info($"Started {name} with {what}.");
+                }
+                else
+                {
+                    ((IMessageSink)this).Error($"Could not run {name}.");
+                }
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception
+                                           or InvalidOperationException
+                                           or IOException
+                                           or UnauthorizedAccessException)
+            {
+                ((IMessageSink)this).Error($"Could not run {name}: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>

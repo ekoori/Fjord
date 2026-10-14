@@ -54,6 +54,41 @@ internal sealed class FakePlatform : IPlatformServices
         return Task.FromResult(HasChooser);
     }
 
+    public List<string> OpenedInFileManager { get; } = [];
+
+    /// <summary>Set false to stand in for a system with no file manager to send a folder to.</summary>
+    public bool HasFileManager { get; set; } = true;
+
+    public Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default)
+    {
+        if (FailWith is not null)
+        {
+            throw FailWith;
+        }
+
+        if (HasFileManager)
+        {
+            OpenedInFileManager.Add(path);
+        }
+
+        return Task.FromResult(HasFileManager);
+    }
+
+    /// <summary>What was run, and with which arguments.</summary>
+    public List<(string Executable, IReadOnlyList<string> Arguments)> Ran { get; } = [];
+
+    public Task<bool> RunWithArgumentsAsync(
+        string executable, IReadOnlyList<string> arguments, CancellationToken ct = default)
+    {
+        if (FailWith is not null)
+        {
+            throw FailWith;
+        }
+
+        Ran.Add((executable, arguments));
+        return Task.FromResult(true);
+    }
+
     public Task RevealAsync(string path, CancellationToken ct = default)
     {
         if (FailWith is not null)
@@ -115,6 +150,47 @@ public class PlatformCommandTests
 
         // The whole point is not to use the default handler.
         Assert.Empty(platform.Opened);
+    }
+
+    [Fact]
+    public async Task OpenWithOnAFolderOpensTheSystemFileManager()
+    {
+        // "Open with" on a folder would list programs that cannot open one. What the key
+        // means there is Explorer or Finder — and once Fjord has taken the folder
+        // association over, asking the system to open it would come back to Fjord.
+        var (parser, platform) = Setup();
+        var pane = new FakePane("/tmp");
+        pane.AddDirectory("sub");
+
+        await AwaitAll(parser, "open-with", pane);
+
+        Assert.Equal([Path.Combine("/tmp", "sub")], platform.OpenedInFileManager);
+        Assert.Empty(platform.Chosen);
+    }
+
+    [Fact]
+    public async Task OpenWithOnAFileStillShowsTheChooser()
+    {
+        var (parser, platform) = Setup();
+
+        await AwaitAll(parser, "open-with", new FakePane("/tmp", "notes.txt"));
+
+        Assert.Empty(platform.OpenedInFileManager);
+        Assert.Equal([Path.Combine("/tmp", "notes.txt")], platform.Chosen);
+    }
+
+    [Fact]
+    public async Task NoFileManagerIsReportedRatherThanIgnored()
+    {
+        var (parser, platform) = Setup();
+        platform.HasFileManager = false;
+        var pane = new FakePane("/tmp");
+        pane.AddDirectory("sub");
+        var messages = new RecordingMessageSink();
+
+        await AwaitAll(parser, "open-with", pane, messages);
+
+        Assert.Contains("file manager", messages.Last!, StringComparison.Ordinal);
     }
 
     [Fact]

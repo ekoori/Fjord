@@ -67,6 +67,37 @@ public interface IPlatformServices
     /// <summary>Shows a path in the system file manager, selected where that is supported.</summary>
     Task RevealAsync(string path, CancellationToken ct = default);
 
+    /// <summary>
+    /// Opens a folder in the system file manager, as a window of its own.
+    /// </summary>
+    /// <returns>False when this platform has no file manager to send it to.</returns>
+    /// <remarks>
+    /// Not <see cref="OpenAsync"/>, which goes to the registered handler for folders — and
+    /// once <c>:default-file-manager</c> has been used that handler is Fjord, so asking the
+    /// system to open a folder would come straight back here. This names the system's own
+    /// file manager instead, which is the point of asking for it.
+    /// <para>
+    /// Distinct from <see cref="RevealAsync"/>: reveal shows a path <i>selected inside its
+    /// parent</i>, which for a folder means looking at it from outside rather than opening
+    /// it.
+    /// </para>
+    /// </remarks>
+    Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs a program, handing it paths as its arguments.
+    /// </summary>
+    /// <returns>False when this platform cannot launch it.</returns>
+    /// <remarks>
+    /// What dropping files onto an executable has meant since the shell learned to do it:
+    /// the paths arrive as <c>argv</c>, and nothing more. There is no registry entry or
+    /// manifest describing flags a program would like — a drop target carries no
+    /// convention beyond the arguments themselves — so Fjord passes the paths and nothing
+    /// else rather than inventing switches the program never asked for.
+    /// </remarks>
+    Task<bool> RunWithArgumentsAsync(
+        string executable, IReadOnlyList<string> arguments, CancellationToken ct = default);
+
     string HomeDirectory { get; }
 
     /// <summary>Shortens a path for display: <c>~/x</c> on Unix.</summary>

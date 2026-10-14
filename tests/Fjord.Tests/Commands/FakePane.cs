@@ -217,6 +217,10 @@ public sealed class FakePane : IPane
         return Task.CompletedTask;
     }
 
+    /// <summary>Adds a file entry, for tests that build a listing row by row.</summary>
+    public void AddFile(string name) =>
+        _snapshot.Append([new FileEntry(name, 10, 100, EntryFlags.None)]);
+
     /// <summary>Adds a directory entry, for tests that need one to navigate into.</summary>
     public void AddDirectory(string name) =>
         _snapshot.Append([new FileEntry(name, -1, 100, EntryFlags.Directory)]);

@@ -67,6 +67,42 @@ public abstract class PlatformServicesBase : IPlatformServices
 
     public abstract Task RevealAsync(string path, CancellationToken ct = default);
 
+    /// <summary>No file manager by default; the caller says so rather than guessing.</summary>
+    public virtual Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    /// <summary>
+    /// Starts the program directly, with the paths as arguments.
+    /// </summary>
+    /// <remarks>
+    /// <c>UseShellExecute</c> stays off: the point is to run <i>this</i> program, not to
+    /// ask the shell what should open it. ArgumentList rather than a joined string, so a
+    /// path with a space in it arrives as one argument on every platform.
+    /// </remarks>
+    public virtual Task<bool> RunWithArgumentsAsync(
+        string executable, IReadOnlyList<string> arguments, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(executable);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        var info = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false,
+
+            // Started from the program's own folder, which is where a script dropped on
+            // expects to find whatever sits beside it.
+            WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(executable)) ?? string.Empty,
+        };
+
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        Start(info);
+        return Task.FromResult(true);
+    }
+
     public virtual string DisplayPath(string path) => path;
 
     /// <summary>
@@ -175,6 +211,57 @@ public sealed class WindowsPlatformServices : PlatformServicesBase
         return Task.FromResult(true);
     }
 
+    /// <remarks>
+    /// Named explicitly rather than left to the shell. Once <c>:default-file-manager</c>
+    /// has pointed folders at Fjord, asking the system to open one arrives back here.
+    /// </remarks>
+    public override Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default)
+    {
+        Start(Command("explorer.exe", Path.GetFullPath(path)));
+        return Task.FromResult(true);
+    }
+
+    /// <remarks>
+    /// PowerShell scripts are not executable by themselves — the shell opens a .ps1 in an
+    /// editor — so they are handed to the interpreter with the paths after them. The
+    /// profile is skipped because a drop should run the script, not the user's startup
+    /// configuration, and ExecutionPolicy Bypass because a script the user just dropped
+    /// files onto is a script the user chose to run.
+    /// </remarks>
+    public override Task<bool> RunWithArgumentsAsync(
+        string executable, IReadOnlyList<string> arguments, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(executable);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        if (!executable.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+        {
+            return base.RunWithArgumentsAsync(executable, arguments, ct);
+        }
+
+        var full = Path.GetFullPath(executable);
+
+        var info = new ProcessStartInfo("powershell.exe")
+        {
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(full) ?? string.Empty,
+        };
+
+        info.ArgumentList.Add("-NoProfile");
+        info.ArgumentList.Add("-ExecutionPolicy");
+        info.ArgumentList.Add("Bypass");
+        info.ArgumentList.Add("-File");
+        info.ArgumentList.Add(full);
+
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        Start(info);
+        return Task.FromResult(true);
+    }
+
     public override Task RevealAsync(string path, CancellationToken ct = default)
     {
         var full = Path.GetFullPath(path);
@@ -249,6 +336,14 @@ public sealed class MacPlatformServices : PlatformServicesBase
         "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
                     .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
+    public override Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default)
+    {
+        // -a Finder rather than a bare open, which would consult the handler for the type
+        // and could be Fjord.
+        Start(Command("open", "-a", "Finder", Path.GetFullPath(path)));
+        return Task.FromResult(true);
+    }
+
     public override Task RevealAsync(string path, CancellationToken ct = default)
     {
         Start(Command("open", "-R", Path.GetFullPath(path)));
@@ -261,6 +356,38 @@ public sealed class MacPlatformServices : PlatformServicesBase
 [SupportedOSPlatform("linux")]
 public sealed class LinuxPlatformServices : PlatformServicesBase
 {
+    /// <summary>File managers tried in turn, most common first.</summary>
+    /// <remarks>
+    /// Named rather than left to <c>xdg-open</c>, which consults the handler for
+    /// <c>inode/directory</c> — and once <c>:default-file-manager</c> has been used that is
+    /// Fjord, so opening a folder "externally" would open another Fjord tab. Falling back
+    /// to xdg-open when none of these exists is still better than refusing, and on a system
+    /// where Fjord is the handler the fallback simply does what Fjord already does.
+    /// </remarks>
+    private static readonly string[] FileManagers =
+        ["nautilus", "dolphin", "thunar", "nemo", "caja", "pcmanfm", "xdg-open"];
+
+    public override Task<bool> OpenInFileManagerAsync(string path, CancellationToken ct = default)
+    {
+        var full = Path.GetFullPath(path);
+
+        foreach (var manager in FileManagers)
+        {
+            try
+            {
+                Start(Command(manager, full));
+                return Task.FromResult(true);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception
+                                           or InvalidOperationException)
+            {
+                // Not installed. Try the next one.
+            }
+        }
+
+        return Task.FromResult(false);
+    }
+
     public override StringComparison PathComparison => StringComparison.Ordinal;
 
     public override IReadOnlyList<PlatformRoot> GetRoots()

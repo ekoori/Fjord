@@ -391,13 +391,40 @@ public class NavigationCommandTests
     }
 
     [Fact]
-    public void SelectToggleSelectsAndAdvances()
+    public void SelectToggleStaysOnWhatItMarked()
     {
-        // Holding Space should select a run, as it does in a mail client.
+        // Space marks the entry under the cursor and leaves the cursor on it. Advancing
+        // moves off the thing just picked, so checking it costs a keystroke back and
+        // mis-aiming marks the row below.
+        var (parser, _) = Setup();
+        var pane = Pane();
+
+        parser.Execute("select-toggle", new CommandContext { Pane = pane });
+
+        Assert.Equal([0], pane.Selection.Indices());
+        Assert.Equal(0, pane.CursorIndex);
+    }
+
+    [Fact]
+    public void ACountMarksARunAndStopsOnTheLastOfThem()
+    {
         var (parser, _) = Setup();
         var pane = Pane();
 
         parser.Execute("select-toggle", new CommandContext { Count = 3, Pane = pane });
+
+        Assert.Equal([0, 1, 2], pane.Selection.Indices());
+        Assert.Equal(2, pane.CursorIndex);
+    }
+
+    [Fact]
+    public void TheAdvancingVariantIsStillThere()
+    {
+        // For anyone who wants Space to sweep, as a mail client does.
+        var (parser, _) = Setup();
+        var pane = Pane();
+
+        parser.Execute("select-toggle-advance", new CommandContext { Count = 3, Pane = pane });
 
         Assert.Equal([0, 1, 2], pane.Selection.Indices());
         Assert.Equal(3, pane.CursorIndex);

@@ -62,20 +62,105 @@ public sealed class NavigationCommands
     /// <remarks>
     /// Bare <c>gg</c> goes to the top; <c>&lt;count&gt;gg</c> goes to that entry, counted
     /// from one as vim numbers lines.
+    /// <para>
+    /// With directories first the listing has two halves, and the top of the half you are
+    /// in is usually nearer what you meant than the top of everything: from among the files
+    /// it goes to the first file, and only from there to the very top. Pressing it twice
+    /// still reaches the top, so nothing is out of reach.
+    /// </para>
     /// </remarks>
     [Command("move-first", Group = "Motion", Motion = MotionKind.Linewise,
         Description = "Move to the first entry, or to entry <count>")]
     public void MoveFirst(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
-        [CommandArgument(Value = CommandValue.Count)] int count = 0) =>
-        pane.MoveCursorTo(count > 0 ? count - 1 : 0);
+        [CommandArgument(Value = CommandValue.Count)] int count = 0)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+
+        if (count > 0)
+        {
+            pane.MoveCursorTo(count - 1);
+            return;
+        }
+
+        pane.MoveCursorTo(SectionStart(pane) is { } start && start != pane.CursorIndex ? start : 0);
+    }
 
     [Command("move-last", Group = "Motion", Motion = MotionKind.Linewise,
         Description = "Move to the last entry, or to entry <count>")]
     public void MoveLast(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
-        [CommandArgument(Value = CommandValue.Count)] int count = 0) =>
-        pane.MoveCursorTo(count > 0 ? count - 1 : int.MaxValue);
+        [CommandArgument(Value = CommandValue.Count)] int count = 0)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+
+        if (count > 0)
+        {
+            pane.MoveCursorTo(count - 1);
+            return;
+        }
+
+        pane.MoveCursorTo(SectionEnd(pane) is { } end && end != pane.CursorIndex ? end : int.MaxValue);
+    }
+
+    /// <summary>
+    /// The first row of the half the cursor is in, or null when the listing has one half.
+    /// </summary>
+    /// <remarks>
+    /// Only with directories first, and only when both kinds are present: with the setting
+    /// off, or in a listing of files alone, there is one section and the section start is
+    /// the top, which would make the second press do nothing.
+    /// </remarks>
+    private static int? SectionStart(IPane pane)
+    {
+        if (Boundary(pane) is not { } boundary)
+        {
+            return null;
+        }
+
+        return pane.CursorIndex >= boundary ? boundary : 0;
+    }
+
+    private static int? SectionEnd(IPane pane)
+    {
+        if (Boundary(pane) is not { } boundary)
+        {
+            return null;
+        }
+
+        var last = (pane.Snapshot?.View.Count ?? 0) - 1;
+        return pane.CursorIndex < boundary ? boundary - 1 : last;
+    }
+
+    /// <summary>
+    /// The row the files start at, or null when the listing is not in two halves.
+    /// </summary>
+    /// <remarks>
+    /// Found by scanning rather than counted as the listing is built, because the comparator
+    /// is what decides the order and a filter can empty either half. A listing is at most a
+    /// screenful of interest here and the scan stops at the first file.
+    /// </remarks>
+    private static int? Boundary(IPane pane)
+    {
+        if (pane.Sort is not { DirectoriesFirst: true })
+        {
+            return null;
+        }
+
+        var view = pane.Snapshot?.View ?? default;
+
+        for (var row = 0; row < view.Count; row++)
+        {
+            if (!view[row].IsDirectory)
+            {
+                // Nothing above it means no directories, so there is only one section.
+                return row == 0 ? null : row;
+            }
+        }
+
+        // Every entry is a directory: one section again.
+        return null;
+    }
 
     [Command("move-page-down", Group = "Motion", Motion = MotionKind.Linewise,
         Description = "Move down a screenful")]
@@ -666,12 +751,41 @@ public sealed class NavigationCommands
 
     // ---- Selection
 
+    /// <remarks>
+    /// Stays where it is. Advancing lets Space be held to sweep up a run, which is what a
+    /// mail client does, but it also means every deliberate pick moves the cursor off the
+    /// thing just picked: looking at what you chose costs a keystroke back, and mis-aiming
+    /// marks the row below. The sweeping version is still here under its own name for
+    /// anyone who wants it bound to Space.
+    /// </remarks>
     [Command("select-toggle", Group = "Selection", Description = "Select or deselect the current entry")]
     public void SelectToggle(
         [CommandArgument(Value = CommandValue.Pane)] IPane pane,
         [CommandArgument(Value = CommandValue.Count)] int count = 1)
     {
-        // Toggling then advancing lets Space be held to select a run, as in a mail client.
+        ArgumentNullException.ThrowIfNull(pane);
+
+        // A count still means a run: 5<Space> marks five, which needs the cursor to move
+        // between them, and leaves it on the last of them rather than past it.
+        for (var i = 0; i < count; i++)
+        {
+            pane.Selection.Toggle(pane.CursorIndex);
+
+            if (i < count - 1)
+            {
+                pane.MoveCursor(1);
+            }
+        }
+    }
+
+    [Command("select-toggle-advance", Group = "Selection",
+        Description = "Select or deselect the current entry, then move down")]
+    public void SelectToggleAdvance(
+        [CommandArgument(Value = CommandValue.Pane)] IPane pane,
+        [CommandArgument(Value = CommandValue.Count)] int count = 1)
+    {
+        ArgumentNullException.ThrowIfNull(pane);
+
         for (var i = 0; i < count; i++)
         {
             pane.Selection.Toggle(pane.CursorIndex);
