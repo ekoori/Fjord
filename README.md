@@ -15,7 +15,7 @@ zip, recursive folder sizes, and the help page. Regenerate with
 
 > **Status: early but complete for v1.** Everything on the original v1 list is built.
 > Previews, an embedded terminal, git integration and plugins are not. The first
-> packaged build is [v0.1.0-beta.2](https://github.com/ekoori/Fjord/releases/tag/v0.1.0-beta.2).
+> packaged build is [v0.1.0-beta.3](https://github.com/ekoori/Fjord/releases/tag/v0.1.0-beta.3).
 
 ## What works
 
